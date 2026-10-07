@@ -1,0 +1,38 @@
+# External analysis: Convidence_AI ("Observe POC")
+
+Source: `/Users/clemenshoenig/Documents/Software-Projects/Convidence_AI` (local, user's own project). Analyzed against Laird's `docs/prd/product-prd.md`, `docs/prd/technical-prd.md`, and the locked `design/variations/v9-signature/` direction.
+
+## 1. What it is
+
+"Observe" is a governance/compliance platform for AI-assisted business workflows — pitched as an alternative to n8n/Make/LangGraph **without a node canvas**. Its core promise: every external effect an AI-driven workflow causes (a Zendesk reply, a Linear ticket, a Slack post) is **planned, authorized, applied and reconciled**, with every step written to a hash-chained, append-only evidence ledger. Stack: TypeScript/pnpm/Turborepo monorepo, Electron desktop shell (thin, HTTP-only to a separate server process), DBOS durable workflows on Postgres, Cedar policy engine for separation-of-duties, and a `claude-workspace/` where headless Claude Code (`claude -p --output-format json`) drafts decisions under an MCP server that logs every tool call to the ledger.
+
+This is enterprise compliance/governance tooling for regulated business-process automation — a different product, different audience, different stakes than Laird. But its trust-and-evidence machinery is some of the most directly relevant prior art available for Laird's weakest pillar.
+
+## 2. Specific patterns found, relevant to Laird
+
+- **`AiDecisionPort`** (`packages/ai`): a clean adapter interface between the workflow runtime and "something that makes an AI decision" — implementations include a headless Claude Code adapter (`claude -p --output-format json`) and a deterministic scripted stand-in for tests. This is a *working, verified* integration: HANDOFF.md reports a real run — 12s, $0.18, model `claude-opus-5-5`, correctly ignored an injected prompt-injection attempt.
+- **Hash-chained evidence ledger** (`packages/ledger`): per-tenant append-only hash chain, `verifyChain`, HMAC-signed checkpoints, sensitive-field redaction in ledger payloads while full values stay in operational tables.
+- **Plan → authorize → apply → reconcile** (`packages/runtime/src/plans.ts`, `dispatch.ts`): a dispatch gate checks pause state, connection state, authorization bound to a **plan hash** (any revision invalidates earlier approvals), expiry, and retry limits; a `dispatch.intent` is durably committed *before* any external effect, and on crash-recovery the system reconciles before ever resending (proven by a real two-process SIGKILL test).
+- **Cedar policy engine with separation-of-duties as `forbid` rules**, plus a dev role-switcher (builder/approver/auditor/admin roles; e.g. "frank: builder, publisher — cannot publish own drafts").
+- **Claude Code embedded in a real terminal panel** (node-pty, in `apps/desktop`) inside a dedicated `claude-workspace/`, with an MCP server exposing read/validate/draft tools and **hooks that log every tool call** as a ledger event (`ai.tool_call`) — i.e., a working example of instrumenting Claude Code's own tool calls into a structured, queryable event log, not scraped terminal text.
+- Architectural choice: **renderer talks only HTTP to a separate server process**; desktop-only features go through a narrow `window.observeDesktop` preload bridge. Keeps the Electron shell thin and the same UI deployable as a web app.
+
+## 3. Adopt
+
+- **An append-only, local activity/evidence log, one event per tool call / file change / decision.** This is the single most valuable thing to take. It turns Laird's pillar 8 ("Observability, in plain language") from "a cost/time footer" into something with real teeth: the plain-language summary the user sees is a *rendering* of a durable, inspectable event log, not a one-off description that can't be checked. Directly strengthens pillar 7 (harness mode) too — a harness check ("did the agent actually touch `Settings.tsx`?") can be answered by querying the log instead of re-deriving it.
+- **The `AiDecisionPort`-style adapter seam**, scoped down: even though Laird is Claude-Code-only for v1 (explicit non-goal: not multi-provider on day one), putting a thin interface between "session manager" and "the thing that actually talks to Claude Code" costs little and directly answers technical-PRD open question #2 — Observe is live proof that headless `claude -p --output-format json` is a working, low-risk integration path *today*, which de-risks Laird's "structured SDK/headless" recommendation (technical-prd.md §3) before Laird has to spend its own spike time confirming that.
+- **"Plan before you act, on anything destructive."** Not Cedar, not DBOS — just the *shape* of the idea: before an agent runs something with real blast radius (force-push, delete, deploy), show the plan, require an explicit confirm, and bind that confirmation to the specific plan so a silently-revised plan can't ride on an old approval. This is a concrete, buildable version of Laird's vague technical-PRD security note ("never bypass Claude Code's own permission/confirmation system") and gives pillar 7 (harness/guardrails) an actual mechanism instead of only "a Reviewer subagent checks a list in English."
+- **Renderer-talks-HTTP-to-a-separate-process** as a pattern worth considering if Laird's session manager ever needs to survive a renderer crash/reload independent of running agent sessions — worth a mention in the technical PRD's open Electron-architecture questions, not a v1 requirement.
+
+## 4. Don't adopt
+
+- **DBOS + Postgres (embedded or cloud) + Cedar policy engine.** This is durable-workflow and compliance infrastructure sized for regulated multi-tenant business processes with real legal audit requirements. Laird is a single-user local desktop tool for a solo builder's own projects — there is no separation-of-duties requirement, no regulator, no multi-tenant story. Pulling this stack in would be a drastic, misaligned architecture bet; a simple local append-only log (SQLite, per technical-prd.md §4's existing assumption) covers everything Laird actually needs from this pattern.
+- **The node-canvas-free workflow-automation framing itself** (the n8n/Make/LangGraph alternative, external SaaS connectors — Zendesk/HubSpot/Linear/Slack). No product overlap with Laird at all; this is business-process automation, not parallel coding-agent sessions. Nothing here should influence Laird's product surface.
+- **The multi-user role model** (alice/bob/carol/dana/erik, builder/approver/auditor/admin). Laird is single-user; there's no one to separate duties from.
+- **Hash-chain cryptographic rigor (HMAC checkpoints, crypto-shredding, Iceberg export, OIDC).** Real engineering, zero payoff for Laird's threat model — nobody is auditing a solo builder's local Claude Code sessions for regulatory compliance. A plain local log file/table with no cryptographic chain is sufficient and far cheaper to build.
+
+## 5. Open questions
+
+- Whether Laird's "plan hash" equivalent (binding a confirmation to an exact destructive action) is worth building for v1 or is a v2 hardening pass — leaning toward a light version in v1 (at minimum: re-confirm if the proposed destructive action changes between "shown" and "about to run").
+- Whether the append-only log should live in the same local store as the rest of Laird's data model (technical-prd.md §4) or be a genuinely separate, simpler log table — leaning toward same store, separate table, to avoid two storage systems for no real benefit at Laird's scale.
+- Convidence_AI's own PRD/architecture detail lives in a Claude Doc (not in this repo) — this analysis is based on README/AGENTS/HANDOFF/package.json and the directory layout only, not the full requirement/acceptance-table detail referenced there.

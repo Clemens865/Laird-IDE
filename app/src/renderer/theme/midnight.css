@@ -1,0 +1,29 @@
+/*
+ * A second theme — the concrete proof Workstream F's own plan required:
+ * "at minimum, one second theme... switches cleanly with no component code
+ * changes." Every rule here is a token VALUE override, scoped under
+ * `:root[data-theme="midnight"]` so it only activates when that attribute
+ * is set (see ThemeToggle.tsx) — zero component code, zero v9.css changes,
+ * on top of the same retrofit that made every glass/shadow effect read
+ * from `--surface-rgb`/`--ink-rgb` instead of hardcoded light-theme values.
+ */
+:root[data-theme="midnight"] {
+  --mist-0: #11161b; --mist-1: #161d24; --mist-2: #1b232b; --mist-3: #212b34;
+  --ink: #e7edf2; --ink-2: #b9c4cd; --muted: #85929d; --faint: #5a6771;
+  --paper: rgba(26,33,40,0.72); --paper-solid: #161d24;
+
+  /* The base RGB triples every glass/shadow effect in v9.css reads through
+     `rgba(var(--surface-rgb), α)` / `rgba(var(--ink-rgb), α)` — this pair is
+     the entire reason that retrofit existed: redefine these two and every
+     glass panel, border, and shadow in the whole app re-themes itself. */
+  --surface-rgb: 26, 33, 40;
+  --ink-rgb: 231, 237, 242;
+
+  --codex: #4db8a8; --codex-soft: #173330; --claude: #e08a68; --claude-soft: #3a261d; --amber: #e8b563; --amber-soft: #3a2e16;
+  --violet: #a594dd; --violet-soft: #2c2640; --rose: #d97a9b; --rose-soft: #3a2029;
+
+  --state-info: #6fa0d8; --state-info-soft: #1b2a3a;
+  --state-success: #5bc492; --state-success-soft: #173328;
+  --state-warning: #d9a84f; --state-warning-soft: #3a2e14;
+  --state-danger: #dd7b6a; --state-danger-soft: #3a2018;
+}

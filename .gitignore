@@ -1,0 +1,33 @@
+# macOS
+.DS_Store
+
+# Node / build
+node_modules/
+app/out/
+app/dist/
+
+# Secrets / local env
+.env
+.env.local
+.env.*.local
+
+# Local Claude Code settings (per-machine, not shared)
+.claude/settings.local.json
+.claude/.pulse-session
+
+# ruflo-generated stock agent/command/helper boilerplate (identical across
+# every ruflo-initialized project, not Laird-specific) — keep settings.json,
+# drop the rest.
+.claude/agents/
+.claude/commands/
+.claude/helpers/
+.claude/skills/
+
+# Codex local configuration
+.codex/
+
+# Ruflo / claude-flow local runtime, caches, and generated metrics
+.claude-flow/
+.agents/
+.swarm/
+ruvector.db

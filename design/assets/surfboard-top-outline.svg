@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 420" fill="none" stroke="#111111" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" role="img" aria-labelledby="title description">
+  <title id="title">Surfboard top view with center stringer</title>
+  <desc id="description">Symmetrical outline of a surfboard viewed from above, with a pointed nose on the right, a rounded squash tail on the left, and a straight stringer down the center. Transparent background, no fills.</desc>
+  <path id="board" d="M 1071 210 C 979 142 846 103 681 95 C 463 82 276 114 143 169 Q 123 177 123 194 L 123 226 Q 123 243 143 251 C 276 306 463 338 681 325 C 846 317 979 278 1071 210 Z"/>
+  <path id="stringer" d="M 123 210 H 1071"/>
+</svg>

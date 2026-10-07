@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 420" fill="none" stroke="#111111" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" role="img" aria-labelledby="title description">
+  <title id="title">Surfboard side view</title>
+  <desc id="description">Outline of a surfboard with an upturned nose on the right and a single swept fin near the tail on the left. Transparent background, no fills.</desc>
+  <path id="board" d="M 132 204 C 356 188 716 205 917 183 C 977 176 1016 160 1062 147 C 1071 145 1076 148 1068 156 C 1016 202 921 217 785 219 C 577 223 321 222 137 219 Q 123 218 123 211 Q 123 206 132 204 Z"/>
+  <path id="fin" d="M 262 220 C 278 250 263 279 235 307 C 233 310 235 312 240 310 C 296 292 331 259 342 221"/>
+</svg>

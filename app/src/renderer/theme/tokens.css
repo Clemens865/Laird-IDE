@@ -1,0 +1,107 @@
+/*
+ * The formal token contract from docs/prd/technical/design-system-and-nfr.md
+ * (Workstream F) — v9-signature's own values extracted verbatim from
+ * design/variations/v9-signature/index.html as the *default theme*, with
+ * every category the PRD's own concrete list calls for now actually present
+ * (background tiers, text tiers, one accent pair, four semantic alert
+ * states, one glow token, font slots, a spacing scale, motion durations +
+ * prefers-reduced-motion). A second theme is a token-swap away — see
+ * `midnight.css`, the proof this chunk required.
+ */
+:root {
+  /* Raw v9-signature palette — kept as the names every existing component
+     already reads (board-flip colors, per-project accent cycling, etc.);
+     the formal contract below is built FROM these, not a replacement. */
+  --mist-0: #f6f8fa; --mist-1: #eef2f5; --mist-2: #e2e9ee; --mist-3: #d5dee5;
+  --ink: #1b2730; --ink-2: #3b4a55; --muted: #7a8893; --faint: #a9b4bc;
+  --paper: rgba(251,252,253,0.78); --paper-solid: #fbfcfd;
+  --codex: #2d9d8f; --codex-soft: #d9efec; --claude: #d97757; --claude-soft: #f8e3da; --amber: #e3a33b; --amber-soft: #fbefd9;
+  --violet: #8d7ad1; --violet-soft: #e9e4f8; --rose: #c15c82; --rose-soft: #f7e1ea;
+  --serif: 'Newsreader', Georgia, serif; --sans: 'Inter', system-ui, sans-serif; --mono: 'JetBrains Mono', ui-monospace, monospace;
+
+  /*
+   * RGB triples (comma-separated, no `rgb()` wrapper) so `rgba(var(--x), α)`
+   * expands correctly — this is what actually makes glass surfaces and
+   * ink-based shadows/borders swap per theme. v9.css's own glass effects
+   * were hardcoded to literal `rgba(255,255,255,…)`/`rgba(27,39,48,…)`
+   * before this chunk (confirmed live by grepping it) — a theme redefining
+   * --ink or --mist-* alone would NOT have touched those, which is exactly
+   * why Workstream F retrofitted every such literal to read from these two
+   * instead, each site keeping its own hand-tuned alpha value.
+   */
+  --surface-rgb: 255, 255, 255;
+  --ink-rgb: 27, 39, 48;
+  --line: rgba(var(--ink-rgb), 0.09);
+
+  /* Background tiers (design-system-and-nfr.md's own naming: surface / sunk / raised). */
+  --surface: var(--paper-solid);
+  --surface-sunk: var(--mist-2);
+  --surface-raised: rgba(var(--surface-rgb), 0.6);
+  --surface-solid: rgb(var(--surface-rgb));
+
+  /* Text tiers (ink / ink-2 / ink-3) — ink-3 is an alias for the existing
+     --muted, not a fourth new color: --faint remains a lower-emphasis
+     decorative/placeholder shade beyond the PRD's named three tiers. */
+  --ink-3: var(--muted);
+
+  /* One accent pair per theme — --codex (teal) chosen as the one
+     consistent "primary/positive" color already used throughout the real
+     UI (the pulse dot, an enabled skill's "on" label, Confirm & run).
+     --claude/--violet/--rose/--amber remain, unchanged, the separate
+     per-PROJECT identity palette (registry.ts's ACCENT_PALETTE) — a
+     deliberately different concept from the theme's own single accent. */
+  --accent: var(--codex);
+  --accent-soft: var(--codex-soft);
+
+  /* One glow/highlight token — what a pulse/focus glow renders in,
+     independent of --accent so a theme can glow a different color than
+     its primary accent if it wants to. */
+  --glow: var(--codex);
+
+  /* Text/icon color safe on top of a saturated accent fill (glyphs, toggle
+     knobs, a button filled with --accent) — almost never changes per
+     theme, called out as its own token rather than a bare #fff literal. */
+  --on-accent: #fff;
+
+  /* Font slots, named per the PRD's own prescribed slot names (display /
+     body / mono) — aliases over --serif/--sans, which stay as the names
+     already threaded through every existing component and CSS class. */
+  --font-display: var(--serif);
+  --font-body: var(--sans);
+
+  /* Semantic alert states — new, not in any static mockup. */
+  --state-info: #3b6fb0; --state-info-soft: #e2ebf6;
+  --state-success: #2d9d6a; --state-success-soft: #dcf0e6;
+  --state-warning: #c18a2e; --state-warning-soft: #f6ead2;
+  --state-danger: #c1503f; --state-danger-soft: #f6dcd8;
+
+  /* Spacing scale — a defined contract that new work should use; the
+     locked v9-signature CSS keeps its own hand-tuned literal px values
+     throughout (mockup-perfect, one-off per rule), not retrofitted wholesale
+     to this scale — a known, deliberate scope boundary, not an oversight. */
+  --space-1: 4px; --space-2: 8px; --space-3: 12px; --space-4: 16px; --space-5: 24px; --space-6: 32px;
+
+  /* Motion durations — board-flip and mist drift read from these. */
+  --motion-flip: 0.65s;
+  --motion-drift: 30s;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --motion-flip: 0.001s;
+    --motion-drift: 0.001s;
+  }
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: var(--sans);
+  color: var(--ink);
+  -webkit-font-smoothing: antialiased;
+  background: radial-gradient(120% 90% at 50% 0%, var(--mist-0) 0%, var(--mist-2) 60%, var(--mist-3) 100%);
+}
+
+.mono { font-family: var(--mono); }
+.serif { font-family: var(--serif); }

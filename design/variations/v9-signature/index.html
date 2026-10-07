@@ -1,0 +1,217 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Laird — Signature</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,wght@0,500;0,600;1,500&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --mist-0: #f6f8fa; --mist-1: #eef2f5; --mist-2: #e2e9ee; --mist-3: #d5dee5;
+    --ink: #1b2730; --ink-2: #3b4a55; --muted: #7a8893; --faint: #a9b4bc;
+    --line: rgba(27,39,48,0.09); --paper: rgba(251,252,253,0.78); --paper-solid: #fbfcfd;
+    --codex: #2d9d8f; --codex-soft: #d9efec; --claude: #d97757; --claude-soft: #f8e3da; --amber: #e3a33b; --amber-soft: #fbefd9;
+    --violet: #8d7ad1; --violet-soft: #e9e4f8; --rose: #c15c82; --rose-soft: #f7e1ea;
+    --serif: 'Newsreader', Georgia, serif; --sans: 'Inter', system-ui, sans-serif; --mono: 'JetBrains Mono', ui-monospace, monospace;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: var(--sans); color: var(--ink); -webkit-font-smoothing: antialiased;
+    background: radial-gradient(120% 90% at 50% 0%, var(--mist-0) 0%, var(--mist-2) 60%, var(--mist-3) 100%); }
+  .mono { font-family: var(--mono); }
+  .serif { font-family: var(--serif); }
+
+  svg.defs { position: absolute; width: 0; height: 0; }
+
+  .grain { position: fixed; inset: 0; z-index: 60; pointer-events: none; opacity: 0.22; mix-blend-mode: overlay; }
+
+  .mist-layer { position: fixed; inset: 0; z-index: 0; overflow: hidden; pointer-events: none; }
+  .mist-blob { position: absolute; border-radius: 50%; filter: blur(70px); opacity: 0.5; animation: drift 30s ease-in-out infinite alternate; }
+  .m1 { width: 620px; height: 420px; background: radial-gradient(circle, #ffffff 0%, transparent 70%); top: -120px; left: 10%; }
+  .m2 { width: 500px; height: 360px; background: radial-gradient(circle, var(--claude-soft) 0%, transparent 72%); bottom: -140px; right: 8%; animation-delay: -10s; }
+  .m3 { width: 440px; height: 320px; background: radial-gradient(circle, var(--codex-soft) 0%, transparent 72%); top: 30%; right: 30%; animation-delay: -20s; }
+  @keyframes drift { from { transform: translate(0,0) scale(1); } to { transform: translate(30px,-24px) scale(1.06); } }
+
+  .app { position: relative; z-index: 1; display: flex; flex-direction: column; min-height: 100vh; }
+
+  .glass { position: relative; background: var(--paper); backdrop-filter: blur(22px) saturate(140%); -webkit-backdrop-filter: blur(22px) saturate(140%); border: 1px solid rgba(255,255,255,0.6); box-shadow: inset 0 1px 0 rgba(255,255,255,0.9), 0 1px 1px rgba(27,39,48,0.03), 0 20px 50px -24px rgba(27,39,48,0.22); }
+  .glass::before { content: ""; position: absolute; inset: 0; border-radius: inherit; pointer-events: none; filter: url(#glassDistort); opacity: 0.5; background: linear-gradient(135deg, rgba(255,255,255,0.5), transparent 40%); }
+
+  .topbar { display: flex; align-items: center; justify-content: space-between; padding: 16px 30px; border-bottom: 1px solid var(--line); position: relative; z-index: 2; }
+  .brand { display: flex; align-items: center; gap: 12px; font-family: var(--serif); font-weight: 600; font-size: 19px; font-style: italic; }
+  .brand .board-flip { width: 42px; height: 18px; color: var(--ink); }
+  .brand .board-flip-inner { animation: brandFlip 7s cubic-bezier(.3,.15,.15,1) infinite; }
+  @keyframes brandFlip { 0%, 42% { transform: rotateY(0deg); } 50%, 92% { transform: rotateY(180deg); } 100% { transform: rotateY(360deg); } }
+  .sub { font-family: var(--sans); color: var(--muted); font-size: 13px; font-weight: 500; font-style: normal; }
+  .btn { display: flex; align-items: center; gap: 7px; padding: 9px 15px; border-radius: 999px; font-size: 13px; font-weight: 600; cursor: pointer; color: var(--ink-2); }
+  .avatar { width: 32px; height: 32px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700; color: var(--ink-2); }
+
+  .tabs { display: flex; align-items: center; gap: 10px; padding: 16px 26px; position: relative; z-index: 2; }
+  .tab { display: flex; align-items: center; gap: 10px; padding: 9px 10px 9px 14px; border-radius: 999px; font-weight: 600; font-size: 13px; cursor: pointer; border: 1px solid transparent; }
+  .tab.active { border-color: rgba(255,255,255,0.7); box-shadow: 0 6px 18px -8px var(--tc), inset 0 1px 0 rgba(255,255,255,0.8); background: rgba(255,255,255,0.3); }
+  .tab:not(.active) { opacity: .5; }
+  .tab-text { display: flex; flex-direction: column; line-height: 1.25; }
+  .tab .state { font-size: 10px; color: var(--muted); font-weight: 500; }
+  .tab-add { width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; border: 1px dashed rgba(27,39,48,0.18); border-radius: 50%; color: var(--muted); }
+
+  /* The board flip IS the activation toggle: resting on its side = idle, laid flat top-down = active/running. */
+  .board-flip { width: 34px; height: 15px; perspective: 260px; flex-shrink: 0; cursor: pointer; }
+  .board-flip-inner { position: relative; width: 100%; height: 100%; transform-style: preserve-3d; transition: transform .65s cubic-bezier(.32,.15,.15,1); }
+  .tab.active .board-flip-inner { transform: rotateY(180deg); }
+  .face { position: absolute; inset: 0; width: 100%; height: 100%; backface-visibility: hidden; fill: none; stroke: var(--tc, currentColor); stroke-width: 1.25; }
+  .face-top { transform: rotateY(180deg); }
+
+  .body { flex: 1; display: flex; min-height: 0; padding: 0 22px 22px; gap: 18px; position: relative; z-index: 2; }
+  .stream-col { flex: 999 1 640px; min-width: 0; display: flex; flex-direction: column; border-radius: 22px; overflow: hidden; }
+  .stream { flex: 1; overflow-y: auto; padding: 30px 34px; display: flex; flex-direction: column; gap: 19px; }
+
+  .bubble-user { align-self: flex-end; max-width: 68%; background: rgba(255,255,255,0.65); border: 1px solid rgba(255,255,255,0.8); border-radius: 18px 18px 5px 18px; padding: 13px 18px; font-size: 14px; line-height: 1.55; box-shadow: 0 10px 24px -16px rgba(27,39,48,0.2); }
+  .turn { max-width: 78%; display: flex; flex-direction: column; gap: 10px; }
+  .turn-head { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--claude); font-weight: 600; }
+  .turn-head .badge { width: 19px; height: 19px; border-radius: 6px; background: var(--claude); display: inline-block; box-shadow: 0 2px 8px -2px var(--claude); }
+  .turn-body { background: rgba(255,255,255,0.55); border: 1px solid rgba(255,255,255,0.75); border-radius: 5px 18px 18px 18px; padding: 15px 19px; font-size: 14px; line-height: 1.62; }
+  .chip { display: flex; align-items: center; gap: 9px; background: rgba(255,255,255,0.5); border: 1px solid rgba(255,255,255,0.7); border-radius: 12px; padding: 9px 14px; }
+  .chip .path { font-size: 12.5px; color: var(--ink); }
+  .chip .note { font-size: 11.5px; color: var(--muted); }
+  .chip .diff { margin-left: auto; font-size: 11px; color: var(--codex); font-weight: 600; }
+  .more { align-self: flex-start; display: flex; align-items: center; gap: 7px; font-size: 12.5px; color: var(--muted); background: none; border: none; cursor: pointer; font-family: inherit; }
+
+  .composer-wrap { padding: 12px 34px 24px; }
+  .slashes { display: flex; gap: 8px; margin-bottom: 10px; }
+  .slash { font-size: 11.5px; color: var(--ink-2); background: rgba(255,255,255,0.55); border: 1px solid rgba(255,255,255,0.7); padding: 5px 11px; border-radius: 999px; }
+  .composer { display: flex; align-items: center; gap: 10px; background: rgba(255,255,255,0.6); border: 1px solid rgba(255,255,255,0.8); border-radius: 999px; padding: 13px 18px; box-shadow: 0 10px 28px -18px rgba(27,39,48,0.3); }
+  .composer input { border: none; outline: none; flex: 1; font-size: 14px; font-family: inherit; background: transparent; color: var(--ink); }
+  .composer input::placeholder { color: var(--faint); }
+  .send { width: 30px; height: 30px; border-radius: 50%; background: var(--ink); display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+
+  .sidebar { width: 316px; flex-shrink: 0; border-radius: 22px; padding: 24px 19px; display: flex; flex-direction: column; gap: 23px; overflow-y: auto; }
+  .label { font-family: var(--serif); font-style: italic; font-size: 14px; font-weight: 600; color: var(--ink); margin-bottom: 12px; }
+  .row-card { display: flex; align-items: center; gap: 10px; padding: 10px 12px; background: rgba(255,255,255,0.45); border: 1px solid rgba(255,255,255,0.6); border-radius: 13px; }
+  .row-card + .row-card { margin-top: 8px; }
+  .glyph { width: 27px; height: 27px; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; flex-shrink: 0; color: #fff; }
+  .r-title { font-size: 12.5px; font-weight: 600; }
+  .r-sub { font-size: 11px; color: var(--muted); }
+  .pulse { width: 7px; height: 7px; border-radius: 50%; background: var(--codex); box-shadow: 0 0 8px var(--codex); }
+
+  .meta { margin-top: auto; padding-top: 16px; border-top: 1px solid var(--line); display: flex; flex-direction: column; gap: 7px; font-size: 12px; color: var(--ink-2); }
+  .meta .r { display: flex; justify-content: space-between; }
+</style>
+</head>
+<body>
+
+<svg class="defs">
+  <filter id="glassDistort"><feTurbulence type="fractalNoise" baseFrequency="0.012 0.02" numOctaves="2" seed="7" result="noise"/><feDisplacementMap in="SourceGraphic" in2="noise" scale="6"/></filter>
+  <symbol id="board-side" viewBox="0 0 1200 420" fill="none" stroke-linecap="round" stroke-linejoin="round">
+    <path vector-effect="non-scaling-stroke" d="M 132 204 C 356 188 716 205 917 183 C 977 176 1016 160 1062 147 C 1071 145 1076 148 1068 156 C 1016 202 921 217 785 219 C 577 223 321 222 137 219 Q 123 218 123 211 Q 123 206 132 204 Z"/>
+    <path vector-effect="non-scaling-stroke" d="M 262 220 C 278 250 263 279 235 307 C 233 310 235 312 240 310 C 296 292 331 259 342 221"/>
+  </symbol>
+  <symbol id="board-top" viewBox="0 0 1200 420" fill="none" stroke-linecap="round" stroke-linejoin="round">
+    <path vector-effect="non-scaling-stroke" d="M 1071 210 C 979 142 846 103 681 95 C 463 82 276 114 143 169 Q 123 177 123 194 L 123 226 Q 123 243 143 251 C 276 306 463 338 681 325 C 846 317 979 278 1071 210 Z"/>
+    <path vector-effect="non-scaling-stroke" d="M 123 210 H 1071"/>
+  </symbol>
+</svg>
+
+<svg class="grain" xmlns="http://www.w3.org/2000/svg"><filter id="grainF"><feTurbulence type="fractalNoise" baseFrequency="0.85" numOctaves="2" seed="11" stitchTiles="stitch"/></filter><rect width="100%" height="100%" filter="url(#grainF)"/></svg>
+<div class="mist-layer"><div class="mist-blob m1"></div><div class="mist-blob m2"></div><div class="mist-blob m3"></div></div>
+
+<div class="app">
+  <div class="topbar glass" style="border-radius:0;">
+    <div class="brand">
+      <div class="board-flip"><div class="board-flip-inner">
+        <svg class="face face-side" viewBox="0 0 1200 420"><use href="#board-side"/></svg>
+        <svg class="face face-top" viewBox="0 0 1200 420"><use href="#board-top"/></svg>
+      </div></div>
+      Laird<span class="sub">&nbsp;· workspace</span>
+    </div>
+    <div style="display:flex; align-items:center; gap:10px;">
+      <div class="btn"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 2 L14.5 9 L22 9.5 L16 14.5 L18 22 L12 17.5 L6 22 L8 14.5 L2 9.5 L9.5 9 Z"/></svg>Skills &amp; agents</div>
+      <div class="btn"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>Grid view</div>
+      <div class="avatar" style="background:var(--amber-soft);">CH</div>
+    </div>
+  </div>
+
+  <div class="tabs">
+    <div class="tab active" style="--tc:#D97757;">
+      <div class="board-flip"><div class="board-flip-inner">
+        <svg class="face face-side" viewBox="0 0 1200 420"><use href="#board-side"/></svg>
+        <svg class="face face-top" viewBox="0 0 1200 420"><use href="#board-top"/></svg>
+      </div></div>
+      <div class="tab-text">Laird_IDE<span class="state">running</span></div>
+    </div>
+    <div class="tab" style="--tc:#2D9D8F;">
+      <div class="board-flip"><div class="board-flip-inner">
+        <svg class="face face-side" viewBox="0 0 1200 420"><use href="#board-side"/></svg>
+        <svg class="face face-top" viewBox="0 0 1200 420"><use href="#board-top"/></svg>
+      </div></div>
+      <div class="tab-text">TerminalOS<span class="state">idle</span></div>
+    </div>
+    <div class="tab" style="--tc:#8D7AD1;">
+      <div class="board-flip"><div class="board-flip-inner">
+        <svg class="face face-side" viewBox="0 0 1200 420"><use href="#board-side"/></svg>
+        <svg class="face face-top" viewBox="0 0 1200 420"><use href="#board-top"/></svg>
+      </div></div>
+      <div class="tab-text">Workspace-OS<span class="state">2 agents</span></div>
+    </div>
+    <div class="tab" style="--tc:#C15C82;">
+      <div class="board-flip"><div class="board-flip-inner">
+        <svg class="face face-side" viewBox="0 0 1200 420"><use href="#board-side"/></svg>
+        <svg class="face face-top" viewBox="0 0 1200 420"><use href="#board-top"/></svg>
+      </div></div>
+      <div class="tab-text">Atelier<span class="state">idle</span></div>
+    </div>
+    <div class="tab-add"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5 V19 M5 12 H19"/></svg></div>
+  </div>
+
+  <div class="body">
+    <div class="stream-col glass">
+      <div class="stream">
+        <div class="bubble-user">Add a dark mode toggle to the settings page and make sure it persists.</div>
+        <div class="turn">
+          <div class="turn-head"><span class="badge"></span>Claude · Laird_IDE</div>
+          <div class="turn-body">I'll add a theme toggle to Settings and store the preference so it survives a reload.</div>
+          <div class="chip"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#2D9D8F" stroke-width="2"><path d="M20 6 L9 17 L4 12"/></svg><span class="path mono">Settings.tsx</span><span class="note">— added theme toggle</span><span class="diff">+18</span></div>
+          <div class="chip"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#2D9D8F" stroke-width="2"><path d="M20 6 L9 17 L4 12"/></svg><span class="path mono">useTheme.ts</span><span class="note">— new file, persists to storage</span><span class="diff">+32</span></div>
+          <button class="more"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4 L20 4 L20 16 L12 16 L7 20 L7 16 L4 16 Z"/></svg>3 more steps · ran tests, all passed</button>
+        </div>
+        <div class="bubble-user">Looks good — ship it.</div>
+      </div>
+      <div class="composer-wrap">
+        <div class="slashes"><span class="slash mono">/review</span><span class="slash mono">/new-skill</span><span class="slash mono">/undo</span></div>
+        <div class="composer">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#a9b4bc" stroke-width="1.8"><path d="M12 2 L21 7 L21 17 L12 22 L3 17 L3 7 Z"/></svg>
+          <input placeholder="Tell Laird what to build next in Laird_IDE…">
+          <div class="send"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2"><path d="M4 12 L20 12 M13 5 L20 12 L13 19"/></svg></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="sidebar glass">
+      <div>
+        <div class="label">Agent activity</div>
+        <div class="row-card"><div class="glyph" style="background:#D97757;">C</div><div style="flex:1;"><div class="r-title">Builder</div><div class="r-sub">editing useTheme.ts</div></div><span class="pulse"></span></div>
+        <div class="row-card" style="opacity:.6;"><div class="glyph" style="background:#8D7AD1;">R</div><div style="flex:1;"><div class="r-title">Reviewer</div><div class="r-sub">done · 0 issues</div></div><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#2D9D8F" stroke-width="2.4"><path d="M20 6 L9 17 L4 12"/></svg></div>
+      </div>
+      <div>
+        <div class="label" style="display:flex; justify-content:space-between; align-items:center;">Skills <a href="#" style="color:#D97757; font-family:var(--sans); font-weight:600; text-decoration:none; font-size:11.5px;">all →</a></div>
+        <div class="row-card"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#1b2730" stroke-width="1.8"><path d="M9 11 L12 14 L21 5 M12 2 C6.5 2 2 6.5 2 12 C2 17.5 6.5 22 12 22 C17.5 22 22 17.5 22 12"/></svg><span style="flex:1; font-size:12.5px;">Design review</span><span class="mono" style="font-size:10.5px; color:var(--muted);">⌘⇧R</span></div>
+        <div class="row-card"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#1b2730" stroke-width="1.8"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9 H21"/></svg><span style="flex:1; font-size:12.5px;">Ship checklist</span><span class="mono" style="font-size:10.5px; color:var(--muted);">⌘⇧S</span></div>
+      </div>
+      <div class="meta">
+        <div class="r"><span>This session</span><span class="mono">¤0.42</span></div>
+        <div class="r"><span>Time</span><span class="mono">3m 12s</span></div>
+        <div class="r"><span>Files changed</span><span class="mono">4</span></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  document.querySelectorAll('.tabs .tab').forEach((tab) => {
+    tab.addEventListener('click', () => {
+      document.querySelectorAll('.tabs .tab').forEach((t) => t.classList.remove('active'));
+      tab.classList.add('active');
+    });
+  });
+</script>
+</body>
+</html>
