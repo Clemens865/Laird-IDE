@@ -17,6 +17,15 @@ export function LivePreviewPanel({ project }: { project: Project }) {
   const containerRef = useRef<HTMLDivElement>(null)
   const [status, setStatus] = useState<Status>('idle')
   const [error, setError] = useState<string | null>(null)
+  const [lockedByHarness, setLockedByHarness] = useState(false)
+
+  useEffect(() => {
+    return window.laird.previewPanel.onLockChange(setLockedByHarness)
+  }, [])
+
+  async function handleTakeBackControl() {
+    await window.laird.harness.cancelRun({ projectId: project.id })
+  }
 
   useEffect(() => {
     const el = containerRef.current
@@ -98,6 +107,27 @@ export function LivePreviewPanel({ project }: { project: Project }) {
       {error && (
         <div style={{ fontSize: 11.5, color: 'var(--state-danger)' }} data-testid="live-preview-error">
           {error}
+        </div>
+      )}
+      {lockedByHarness && (
+        <div
+          data-testid="live-preview-locked-banner"
+          style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            gap: 8,
+            padding: '6px 10px',
+            borderRadius: 8,
+            background: 'var(--state-warning-soft)',
+            color: 'var(--state-warning)',
+            fontSize: 11.5,
+          }}
+        >
+          <span>🔒 The harness is actively checking this page right now — avoid clicking it until it's done, or take back control.</span>
+          <span className="btn" onClick={handleTakeBackControl} data-testid="live-preview-take-back-control" style={{ cursor: 'pointer' }}>
+            Take back control
+          </span>
         </div>
       )}
       <div

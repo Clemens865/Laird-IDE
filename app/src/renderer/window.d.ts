@@ -144,6 +144,7 @@ declare global {
         hide: () => Promise<void>
         setBounds: (bounds: { x: number; y: number; width: number; height: number }) => Promise<void>
         status: () => Promise<{ projectId: string; url: string } | null>
+        onLockChange: (cb: (locked: boolean) => void) => () => void
       }
     }
   }

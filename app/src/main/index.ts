@@ -27,6 +27,7 @@ import { detectPreviewCommand } from './harness/previewDetect'
 import { detectTestCommand } from './harness/testRunner'
 import { runReviewer } from './harness/reviewer'
 import { classifyCriterionClarity } from './harness/jev'
+import { findCdpTargetUrl } from './harness/cdpTarget'
 import { PreviewPanelManager } from './harness/previewPanel'
 import { TypesafeKeyStore, defaultTypesafeKeyPath } from './settings/typesafeKey'
 import { MemoryStore, defaultSnapshotPath } from './store/memoryStore'
@@ -250,10 +251,27 @@ ipcHandle(IPC.HARNESS_RUN_START, async (event, opts: { projectId: string }) => {
   if (project.harnessCriteria.length === 0) throw new Error('HARNESS_RUN_START: project has no harness criteria to check')
   const anyJevFeatureEnabled = Object.values(project.jevFeatures).some(Boolean)
   const jevApiKey = anyJevFeatureEnabled ? (typesafeKeyStore.getKey() ?? undefined) : undefined
+
+  // If the embedded live-preview panel already has this exact project's dev
+  // server up, the harness shares that same visible surface over CDP
+  // instead of starting a second, invisible one.
+  const activePreview = previewPanelManager?.getState()
+  let sharedPreview: { url: string; cdpEndpoint: string; onLockChange: (locked: boolean) => void } | undefined
+  if (activePreview?.projectId === project.id) {
+    const cdpEndpoint = await findCdpTargetUrl(CDP_PORT, activePreview.url)
+    if (cdpEndpoint) {
+      sharedPreview = {
+        url: activePreview.url,
+        cdpEndpoint,
+        onLockChange: (locked) => sendToMainWindow(IPC.PREVIEW_PANEL_LOCK_CHANGED, locked),
+      }
+    }
+  }
+
   const controller = new AbortController()
   activeHarnessRuns.set(project.id, controller)
   try {
-    const run = await runReviewer(project, { jevApiKey, signal: controller.signal })
+    const run = await runReviewer(project, { jevApiKey, signal: controller.signal, sharedPreview })
     store.appendHarnessRun(run)
     return run
   } finally {

@@ -457,3 +457,99 @@ describe('runReviewer — cancellation via AbortSignal', () => {
     expect(run.perCriterionResult[0].rationale).toContain('Canceled')
   })
 })
+
+describe('runReviewer — chunk 3 piece 3: sharing the embedded live-preview panel over CDP', () => {
+  it('never starts or stops a dev server when a shared preview is provided — that real process belongs to the panel, not the harness', async () => {
+    const replyJson = JSON.stringify({
+      results: [{ criterion: 'Looks right on mobile', disposition: 'ship', evidenceTier: 'VERIFIED', rationale: 'Navigated and saw it.' }],
+    })
+    const devServerSpawnFn = vi.fn(() => spawn(process.execPath, ['-e', '']) as never)
+    const reviewerSpawnFn = vi.fn(() => spawnFakeReviewer([assistantTextLine(replyJson)]) as never)
+    const fetchFn = fakeChoiceFetch({ c0: 'ui_interaction' })
+    const project = makeProject({
+      harnessCriteria: ['Looks right on mobile'],
+      jevFeatures: { criterionRouting: true, shortcutDetection: false, criteriaPrefilter: false, adaptiveMultiRun: false },
+    })
+
+    const run = await runReviewer(project, {
+      fetchFn,
+      jevApiKey: 'sk-test',
+      devServerSpawnFn,
+      spawnFn: reviewerSpawnFn,
+      sharedPreview: { url: 'http://localhost:48179', cdpEndpoint: 'ws://127.0.0.1:9335/devtools/page/abc' },
+    })
+
+    expect(devServerSpawnFn).not.toHaveBeenCalled()
+    expect(run.perCriterionResult[0]).toMatchObject({ disposition: 'ship' })
+  })
+
+  it('points the Playwright MCP server at the shared CDP endpoint instead of launching its own browser', async () => {
+    const replyJson = JSON.stringify({ results: [{ criterion: 'A', disposition: 'ship', evidenceTier: 'VERIFIED', rationale: 'ok' }] })
+    let capturedArgs: string[] = []
+    const reviewerSpawnFn = ((_cmd: string, args: string[]) => {
+      capturedArgs = args
+      return spawnFakeReviewer([assistantTextLine(replyJson)])
+    }) as unknown as typeof spawn
+    const fetchFn = fakeChoiceFetch({ c0: 'ui_interaction' })
+    const project = makeProject({
+      harnessCriteria: ['A'],
+      jevFeatures: { criterionRouting: true, shortcutDetection: false, criteriaPrefilter: false, adaptiveMultiRun: false },
+    })
+
+    await runReviewer(project, {
+      fetchFn,
+      jevApiKey: 'sk-test',
+      spawnFn: reviewerSpawnFn,
+      sharedPreview: { url: 'http://localhost:48179', cdpEndpoint: 'ws://127.0.0.1:9335/devtools/page/abc' },
+    })
+
+    const mcpConfigIndex = capturedArgs.indexOf('--mcp-config')
+    const mcpConfig = JSON.parse(capturedArgs[mcpConfigIndex + 1])
+    expect(mcpConfig.mcpServers.playwright.args).toEqual(['@playwright/mcp@latest', '--cdp-endpoint', 'ws://127.0.0.1:9335/devtools/page/abc'])
+  })
+
+  it('brackets the shared, input-contending window with onLockChange(true) then onLockChange(false)', async () => {
+    const replyJson = JSON.stringify({ results: [{ criterion: 'A', disposition: 'ship', evidenceTier: 'VERIFIED', rationale: 'ok' }] })
+    const fetchFn = fakeChoiceFetch({ c0: 'ui_interaction' })
+    const project = makeProject({
+      harnessCriteria: ['A'],
+      jevFeatures: { criterionRouting: true, shortcutDetection: false, criteriaPrefilter: false, adaptiveMultiRun: false },
+    })
+    const lockCalls: boolean[] = []
+
+    await runReviewer(project, {
+      fetchFn,
+      jevApiKey: 'sk-test',
+      spawnFn: () => spawnFakeReviewer([assistantTextLine(replyJson)]) as never,
+      sharedPreview: {
+        url: 'http://localhost:48179',
+        cdpEndpoint: 'ws://127.0.0.1:9335/devtools/page/abc',
+        onLockChange: (locked) => lockCalls.push(locked),
+      },
+    })
+
+    expect(lockCalls).toEqual([true, false])
+  })
+
+  it('still releases the lock when the reviewer pass itself fails', async () => {
+    const fetchFn = fakeChoiceFetch({ c0: 'ui_interaction' })
+    const project = makeProject({
+      harnessCriteria: ['A'],
+      jevFeatures: { criterionRouting: true, shortcutDetection: false, criteriaPrefilter: false, adaptiveMultiRun: false },
+    })
+    const lockCalls: boolean[] = []
+
+    await runReviewer(project, {
+      fetchFn,
+      jevApiKey: 'sk-test',
+      spawnFn: () => spawn('/definitely/does/not/exist-binary-xyz') as never,
+      sharedPreview: {
+        url: 'http://localhost:48179',
+        cdpEndpoint: 'ws://127.0.0.1:9335/devtools/page/abc',
+        onLockChange: (locked) => lockCalls.push(locked),
+      },
+    })
+
+    expect(lockCalls).toEqual([true, false])
+  })
+})

@@ -17,6 +17,15 @@ export type PreviewPanelStartResult = { ok: true } | { ok: false; message: strin
  * Playwright MCP server later drives via CDP (`cdpTarget.ts`), not a
  * second, invisible browser. Only one active panel at a time in v1 — a
  * second `start()` tears down whatever was already showing first.
+ *
+ * Ownership while the harness is actively driving it (`reviewer.ts`'s
+ * `onLockChange`) is advisory, not an input block: Electron's
+ * `setIgnoreMouseEvents` only exists at the whole-window level
+ * (`BrowserWindow`), not per-view — calling it here would freeze all of
+ * Laird's own chrome UI too, not just this one panel. The real reclaim
+ * mechanism is the visible lock banner plus "Take back control," which
+ * cancels the harness run (`HARNESS_RUN_CANCEL`) outright, not a
+ * client-side click-block.
  */
 export class PreviewPanelManager {
   private view: WebContentsView | null = null

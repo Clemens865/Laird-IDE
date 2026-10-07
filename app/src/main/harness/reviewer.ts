@@ -13,8 +13,22 @@ import type { EvidenceTier, HarnessCriterionResult, HarnessDisposition, HarnessR
  * static image. Specified explicitly here rather than depending on whatever
  * plugins happen to be installed on a given machine — same "explicit, never
  * ambient" discipline as everything else this transport configures.
+ *
+ * `cdpEndpoint`, when provided, points the MCP server at an already-running
+ * browser target over Chrome DevTools Protocol instead of letting it launch
+ * its own — the embedded live-preview panel's own page
+ * (`previewPanel.ts`/`cdpTarget.ts`), so the harness drives the exact
+ * surface the user is already watching rather than a second, invisible
+ * browser.
  */
-const PLAYWRIGHT_MCP_SERVERS = { playwright: { command: 'npx', args: ['@playwright/mcp@latest'] } }
+function playwrightMcpServers(cdpEndpoint?: string): Record<string, unknown> {
+  return {
+    playwright: {
+      command: 'npx',
+      args: cdpEndpoint ? ['@playwright/mcp@latest', '--cdp-endpoint', cdpEndpoint] : ['@playwright/mcp@latest'],
+    },
+  }
+}
 /** Read-only + the Playwright MCP tools — still a checker, never a fixer, just like the ordinary `read`-tier reviewer. */
 const UI_REVIEWER_ALLOWED_TOOLS = ['Read', 'Glob', 'Grep', 'mcp__playwright__*']
 const DEV_SERVER_READY_TIMEOUT_MS = 20_000
@@ -199,6 +213,45 @@ async function runReviewerPass(
     : parseReviewerOutput(fullText, criteria)
 }
 
+/** The shared transport/prompt/parse core behind both the harness's own ephemeral browser and a shared embedded-panel one. */
+async function runBrowserReviewerPass(
+  project: Project,
+  criteria: string[],
+  url: string,
+  mcpServers: Record<string, unknown>,
+  opts: { spawnFn?: typeof spawn; signal?: AbortSignal },
+): Promise<HarnessCriterionResult[]> {
+  const transport = new ClaudeHeadlessTransport({
+    spawnFn: opts.spawnFn,
+    allowedToolsOverride: UI_REVIEWER_ALLOWED_TOOLS,
+    mcpServers,
+  })
+  const onAbort = () => transport.stop()
+  opts.signal?.addEventListener('abort', onAbort)
+
+  let fullText = ''
+  transport.onEvent((e) => {
+    if (e.kind === 'text') fullText += (e.payload as { text: string }).text
+  })
+
+  const exitInfo = await new Promise<{ code: number | null; failure?: { kind: string; message: string } }>((resolve) => {
+    transport.onExit(resolve)
+    transport.start({ cwd: project.path, prompt: buildUiReviewerPrompt(criteria, url), model: REVIEWER_MODEL })
+  })
+  opts.signal?.removeEventListener('abort', onAbort)
+
+  if (opts.signal?.aborted) return canceledResults(criteria)
+
+  return exitInfo.failure
+    ? criteria.map((criterion) => ({
+        criterion,
+        disposition: 'unverifiable' as const,
+        evidenceTier: 'STATED' as const,
+        rationale: `The UI reviewer run failed before reporting a result: ${exitInfo.failure!.message}`,
+      }))
+    : parseReviewerOutput(fullText, criteria)
+}
+
 /**
  * Chunk 3's real visual-evidence path: starts the project's own confirmed
  * dev server, waits for it to actually come up, then gives a fresh-context
@@ -206,13 +259,40 @@ async function runReviewerPass(
  * — never a screenshot-only/static check, the PRD's own research found a
  * reviewer can shortcut around a static image too easily. Always tears the
  * dev server back down (`finally`), regardless of outcome.
+ *
+ * `sharedPreview`, when provided (the embedded live-preview panel already
+ * has this exact project's dev server up — `previewPanel.ts`/`cdpTarget.ts`
+ * resolve this in `index.ts`, kept out of this module to stay
+ * Electron-free and unit-testable), skips starting or stopping any dev
+ * server at all — that real process is the panel's to own — and instead
+ * points the reviewer's Playwright MCP server at the exact same already-
+ * running page over CDP, so the user watches the harness click through the
+ * same visible surface rather than a second, invisible browser.
+ * `onLockChange` brackets that shared, input-contending window so the UI
+ * can show a visible lock + reclaim affordance for exactly its duration.
  */
 async function runUiReviewerPass(
   project: Project,
   criteria: string[],
-  opts: { spawnFn?: typeof spawn; devServerSpawnFn?: typeof spawn; waitForPortFn?: typeof waitForPort; signal?: AbortSignal },
+  opts: {
+    spawnFn?: typeof spawn
+    devServerSpawnFn?: typeof spawn
+    waitForPortFn?: typeof waitForPort
+    signal?: AbortSignal
+    sharedPreview?: { url: string; cdpEndpoint: string; onLockChange?: (locked: boolean) => void }
+  },
 ): Promise<HarnessCriterionResult[]> {
   if (opts.signal?.aborted) return canceledResults(criteria)
+
+  if (opts.sharedPreview) {
+    const { url, cdpEndpoint, onLockChange } = opts.sharedPreview
+    onLockChange?.(true)
+    try {
+      return await runBrowserReviewerPass(project, criteria, url, playwrightMcpServers(cdpEndpoint), opts)
+    } finally {
+      onLockChange?.(false)
+    }
+  }
 
   const uiPreview = project.uiPreview
   if (!uiPreview) {
@@ -247,35 +327,7 @@ async function runUiReviewerPass(
     }
 
     const url = `http://localhost:${uiPreview.port}`
-    const transport = new ClaudeHeadlessTransport({
-      spawnFn: opts.spawnFn,
-      allowedToolsOverride: UI_REVIEWER_ALLOWED_TOOLS,
-      mcpServers: PLAYWRIGHT_MCP_SERVERS,
-    })
-    const onAbort = () => transport.stop()
-    opts.signal?.addEventListener('abort', onAbort)
-
-    let fullText = ''
-    transport.onEvent((e) => {
-      if (e.kind === 'text') fullText += (e.payload as { text: string }).text
-    })
-
-    const exitInfo = await new Promise<{ code: number | null; failure?: { kind: string; message: string } }>((resolve) => {
-      transport.onExit(resolve)
-      transport.start({ cwd: project.path, prompt: buildUiReviewerPrompt(criteria, url), model: REVIEWER_MODEL })
-    })
-    opts.signal?.removeEventListener('abort', onAbort)
-
-    if (opts.signal?.aborted) return canceledResults(criteria)
-
-    return exitInfo.failure
-      ? criteria.map((criterion) => ({
-          criterion,
-          disposition: 'unverifiable' as const,
-          evidenceTier: 'STATED' as const,
-          rationale: `The UI reviewer run failed before reporting a result: ${exitInfo.failure!.message}`,
-        }))
-      : parseReviewerOutput(fullText, criteria)
+    return await runBrowserReviewerPass(project, criteria, url, playwrightMcpServers(), opts)
   } finally {
     devServer.stop()
   }
@@ -340,6 +392,8 @@ export async function runReviewer(
     waitForPortFn?: typeof waitForPort
     /** Aborting cancels the in-flight run — kills whatever real process (reviewer/dev-server/test command) is currently active and reports the remaining, not-yet-checked criteria honestly as canceled rather than guessing. */
     signal?: AbortSignal
+    /** Set by `index.ts` when the embedded live-preview panel already has this exact project's dev server up — see `runUiReviewerPass`'s own doc comment. */
+    sharedPreview?: { url: string; cdpEndpoint: string; onLockChange?: (locked: boolean) => void }
   } = {},
 ): Promise<HarnessRun> {
   const allCriteria = project.harnessCriteria

@@ -39,6 +39,7 @@ export const IPC = {
   PREVIEW_PANEL_SET_BOUNDS: 'preview-panel:set-bounds',
   PREVIEW_PANEL_HIDE: 'preview-panel:hide',
   PREVIEW_PANEL_STATUS: 'preview-panel:status',
+  PREVIEW_PANEL_LOCK_CHANGED: 'preview-panel:lock-changed',
   SETTINGS_TYPESAFE_STATUS: 'settings:typesafe-status',
   SETTINGS_TYPESAFE_SET_KEY: 'settings:typesafe-set-key',
   SETTINGS_TYPESAFE_CLEAR_KEY: 'settings:typesafe-clear-key',

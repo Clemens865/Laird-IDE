@@ -83,5 +83,10 @@ contextBridge.exposeInMainWorld('laird', {
     setBounds: (bounds: { x: number; y: number; width: number; height: number }): Promise<void> =>
       ipcRenderer.invoke(IPC.PREVIEW_PANEL_SET_BOUNDS, bounds),
     status: (): Promise<{ projectId: string; url: string } | null> => ipcRenderer.invoke(IPC.PREVIEW_PANEL_STATUS),
+    onLockChange: (cb: (locked: boolean) => void) => {
+      const handler = (_e: unknown, locked: boolean) => cb(locked)
+      ipcRenderer.on(IPC.PREVIEW_PANEL_LOCK_CHANGED, handler)
+      return () => ipcRenderer.removeListener(IPC.PREVIEW_PANEL_LOCK_CHANGED, handler)
+    },
   },
 })
