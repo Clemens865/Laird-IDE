@@ -74,4 +74,13 @@ contextBridge.exposeInMainWorld('laird', {
       ipcRenderer.invoke(IPC.SETTINGS_TYPESAFE_SET_KEY, opts),
     typesafeClearKey: (): Promise<{ configured: boolean; available: boolean }> => ipcRenderer.invoke(IPC.SETTINGS_TYPESAFE_CLEAR_KEY),
   },
+  previewPanel: {
+    start: (opts: { projectId: string }): Promise<{ ok: true } | { ok: false; message: string }> =>
+      ipcRenderer.invoke(IPC.PREVIEW_PANEL_START, opts),
+    stop: (): Promise<void> => ipcRenderer.invoke(IPC.PREVIEW_PANEL_STOP),
+    hide: (): Promise<void> => ipcRenderer.invoke(IPC.PREVIEW_PANEL_HIDE),
+    setBounds: (bounds: { x: number; y: number; width: number; height: number }): Promise<void> =>
+      ipcRenderer.invoke(IPC.PREVIEW_PANEL_SET_BOUNDS, bounds),
+    status: (): Promise<{ projectId: string; url: string } | null> => ipcRenderer.invoke(IPC.PREVIEW_PANEL_STATUS),
+  },
 })

@@ -137,6 +137,13 @@ declare global {
         typesafeSetKey: (opts: { apiKey: string }) => Promise<{ configured: boolean; available: boolean }>
         typesafeClearKey: () => Promise<{ configured: boolean; available: boolean }>
       }
+      previewPanel: {
+        start: (opts: { projectId: string }) => Promise<{ ok: true } | { ok: false; message: string }>
+        stop: () => Promise<void>
+        hide: () => Promise<void>
+        setBounds: (bounds: { x: number; y: number; width: number; height: number }) => Promise<void>
+        status: () => Promise<{ projectId: string; url: string } | null>
+      }
     }
   }
 }

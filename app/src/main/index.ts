@@ -1,5 +1,19 @@
 import { join } from 'node:path'
 import { app, BrowserWindow, safeStorage } from 'electron'
+
+/**
+ * User-confirmed tradeoff (2026-10-07): exposes Chrome DevTools Protocol on
+ * loopback-only for the lifetime of the app, so the harness's own
+ * Playwright MCP server can drive the exact same embedded live-preview
+ * panel the user is watching (`previewPanel.ts`) instead of a second,
+ * invisible browser. Must be set before `app` is ready — Chromium
+ * command-line switches can't be toggled per-session afterward. Same
+ * default bind (127.0.0.1 only, never 0.0.0.0) Electron already uses for
+ * this flag — a standing local debug surface, comparable in risk to e.g.
+ * React DevTools, not a new network-exposed service.
+ */
+const CDP_PORT = 9335
+app.commandLine.appendSwitch('remote-debugging-port', String(CDP_PORT))
 import { IPC } from './ipc/channels'
 import { ipcHandle, registerCleanup, runCleanups } from './ipc/registry'
 import { addProject } from './project/registry'
@@ -13,6 +27,7 @@ import { detectPreviewCommand } from './harness/previewDetect'
 import { detectTestCommand } from './harness/testRunner'
 import { runReviewer } from './harness/reviewer'
 import { classifyCriterionClarity } from './harness/jev'
+import { PreviewPanelManager } from './harness/previewPanel'
 import { TypesafeKeyStore, defaultTypesafeKeyPath } from './settings/typesafeKey'
 import { MemoryStore, defaultSnapshotPath } from './store/memoryStore'
 import { SessionManager } from './session/sessionManager'
@@ -21,6 +36,7 @@ import type { Project } from '../shared/types'
 
 const isDev = !app.isPackaged
 let mainWindow: BrowserWindow | null = null
+let previewPanelManager: PreviewPanelManager | null = null
 
 function createWindow(): BrowserWindow {
   const win = new BrowserWindow({
@@ -289,8 +305,45 @@ ipcHandle(IPC.SETTINGS_TYPESAFE_CLEAR_KEY, (event) => {
   return { configured: typesafeKeyStore.hasKey(), available: typesafeKeyStore.isAvailable() }
 })
 
+ipcHandle(IPC.PREVIEW_PANEL_START, async (event, opts: { projectId: string }) => {
+  assertMainFrame(event)
+  if (!previewPanelManager) throw new Error('PREVIEW_PANEL_START: no window yet')
+  const project = store.getProject(opts.projectId)
+  if (!project) throw new Error(`PREVIEW_PANEL_START: unknown projectId ${opts.projectId}`)
+  if (!project.uiPreview) return { ok: false, message: 'No UI preview command is configured for this project yet.' }
+  if (project.uiPreview.port == null) return { ok: false, message: 'A UI preview command is configured but no port was set.' }
+  return previewPanelManager.start({
+    projectId: project.id,
+    projectPath: project.path,
+    command: project.uiPreview.command,
+    port: project.uiPreview.port,
+  })
+})
+
+ipcHandle(IPC.PREVIEW_PANEL_STOP, (event) => {
+  assertMainFrame(event)
+  previewPanelManager?.stop()
+})
+
+ipcHandle(IPC.PREVIEW_PANEL_HIDE, (event) => {
+  assertMainFrame(event)
+  previewPanelManager?.hide()
+})
+
+ipcHandle(IPC.PREVIEW_PANEL_SET_BOUNDS, (event, bounds: { x: number; y: number; width: number; height: number }) => {
+  assertMainFrame(event)
+  previewPanelManager?.setBounds(bounds)
+})
+
+ipcHandle(IPC.PREVIEW_PANEL_STATUS, (event) => {
+  assertMainFrame(event)
+  return previewPanelManager?.getState() ?? null
+})
+
 app.whenReady().then(() => {
   mainWindow = createWindow()
+  previewPanelManager = new PreviewPanelManager(mainWindow)
+  registerCleanup('preview-panel', () => previewPanelManager?.stop())
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) mainWindow = createWindow()

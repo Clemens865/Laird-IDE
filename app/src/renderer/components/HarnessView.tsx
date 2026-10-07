@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { EvidenceTier, HarnessDisposition, HarnessRun, Project } from '../../shared/types'
+import { LivePreviewPanel } from './LivePreviewPanel'
 
 const DISPOSITION_LABEL: Record<HarnessDisposition, string> = {
   ship: 'SHIP',
@@ -393,6 +394,11 @@ export function HarnessView({ project, onProjectUpdate }: { project: Project; on
               : 'Not configured yet — a run never starts anything without this set explicitly.'}
           </div>
         </div>
+      </div>
+
+      <div className="skills-section">
+        <div className="label">Live preview</div>
+        <LivePreviewPanel project={project} />
       </div>
 
       <div className="skills-section">
