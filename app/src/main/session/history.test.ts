@@ -15,6 +15,8 @@ function makeProject(overrides: Partial<Project> = {}): Project {
     permissionTier: 'write',
     approvalMode: 'auto',
     autonomyRevoked: false,
+    harnessCriteria: [],
+    jevFeatures: { criterionRouting: false, shortcutDetection: false, criteriaPrefilter: false, adaptiveMultiRun: false },
     ...overrides,
   }
 }

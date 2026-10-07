@@ -19,6 +19,20 @@ export interface ClaudeHeadlessTransportOptions {
   permissionTier?: PermissionTier
   /** Injectable so hardening tests can verify idle-timeout kill behavior without waiting 2 minutes. */
   idleTimeoutMs?: number
+  /**
+   * Bypasses `buildPermissionArgs(permissionTier)` entirely when provided —
+   * for a narrow, call-specific tool grant that doesn't fit the general
+   * tiered model (e.g. harness mode's UI-reviewer pass, which needs
+   * Playwright MCP tools but should stay just as read-only/check-only as an
+   * ordinary `read`-tier reviewer otherwise).
+   */
+  allowedToolsOverride?: string[]
+  /**
+   * Overrides the default zero-MCP-servers config when provided — still
+   * passed alongside `--strict-mcp-config`, so it's still an explicit,
+   * call-specific grant, never ambient project/user MCP config.
+   */
+  mcpServers?: Record<string, unknown>
 }
 
 /**
@@ -33,6 +47,8 @@ export class ClaudeHeadlessTransport implements SessionTransport {
   private readonly spawnFn: typeof spawn
   private readonly permissionTier: PermissionTier
   private readonly idleTimeoutMs: number
+  private readonly allowedToolsOverride?: string[]
+  private readonly mcpServers: Record<string, unknown>
   private child: ChildProcessWithoutNullStreams | null = null
   private buffer = ''
   private idleTimer: ReturnType<typeof setTimeout> | null = null
@@ -44,6 +60,8 @@ export class ClaudeHeadlessTransport implements SessionTransport {
     this.spawnFn = opts.spawnFn ?? spawn
     this.permissionTier = opts.permissionTier ?? 'write'
     this.idleTimeoutMs = opts.idleTimeoutMs ?? DEFAULT_IDLE_TIMEOUT_MS
+    this.allowedToolsOverride = opts.allowedToolsOverride
+    this.mcpServers = opts.mcpServers ?? {}
   }
 
   onEvent(cb: (e: SessionTransportEvent) => void): void {
@@ -67,10 +85,10 @@ export class ClaudeHeadlessTransport implements SessionTransport {
       '--verbose',
       '--model', opts.model ?? DEFAULT_MODEL,
       '--settings', JSON.stringify({ disableAllHooks: true }),
-      '--mcp-config', JSON.stringify({ mcpServers: {} }),
+      '--mcp-config', JSON.stringify({ mcpServers: this.mcpServers }),
       '--strict-mcp-config',
       '--setting-sources', 'project',
-      ...buildPermissionArgs(this.permissionTier),
+      ...(this.allowedToolsOverride ? ['--allowedTools', this.allowedToolsOverride.join(',')] : buildPermissionArgs(this.permissionTier)),
     ]
     if (opts.resumeId) args.push('--resume', opts.resumeId)
 

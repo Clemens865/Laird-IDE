@@ -94,4 +94,24 @@ describe('ClaudeHeadlessTransport hardening', () => {
 
     transport.stop()
   })
+
+  it('allowedToolsOverride replaces the tier-based args entirely, and mcpServers replaces the default empty config', () => {
+    let capturedArgs: string[] = []
+    const transport = new ClaudeHeadlessTransport({
+      permissionTier: 'read',
+      allowedToolsOverride: ['Read', 'mcp__playwright__*'],
+      mcpServers: { playwright: { command: 'npx', args: ['@playwright/mcp@latest'] } },
+      spawnFn: ((_cmd: string, args: string[]) => {
+        capturedArgs = args
+        return spawnHungProcess()
+      }) as never,
+    })
+    transport.start({ cwd: '/tmp', prompt: 'irrelevant' })
+    transport.stop()
+
+    const allowedToolsIndex = capturedArgs.indexOf('--allowedTools')
+    expect(capturedArgs[allowedToolsIndex + 1]).toBe('Read,mcp__playwright__*')
+    const mcpConfigIndex = capturedArgs.indexOf('--mcp-config')
+    expect(JSON.parse(capturedArgs[mcpConfigIndex + 1])).toEqual({ mcpServers: { playwright: { command: 'npx', args: ['@playwright/mcp@latest'] } } })
+  })
 })

@@ -12,6 +12,11 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { _electron as electron } from 'playwright'
 
+if (process.env.LAIRD_E2E_REAL_SESSION !== '1') {
+  console.log('[isolation] skipped — set LAIRD_E2E_REAL_SESSION=1 to run (makes two real billed API calls)')
+  process.exit(0)
+}
+
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const root = path.resolve(__dirname, '..')
 

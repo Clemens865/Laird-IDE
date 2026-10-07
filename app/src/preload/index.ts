@@ -4,7 +4,7 @@ import type { DiscoveredSkillsAndAgents } from '../main/skills/discovery'
 import type { BrowseResult, InstallResult, MarketplaceEntry, UninstallResult } from '../main/skills/marketplace'
 import type { SessionHistoryEntry } from '../main/session/history'
 import type { RequestStartResult, SessionManagerEvent } from '../main/session/sessionManager'
-import type { Project, Skill } from '../shared/types'
+import type { HarnessRun, Project, Skill } from '../shared/types'
 
 contextBridge.exposeInMainWorld('laird', {
   session: {
@@ -50,5 +50,28 @@ contextBridge.exposeInMainWorld('laird', {
     browse: (): Promise<BrowseResult> => ipcRenderer.invoke(IPC.MARKETPLACE_BROWSE),
     install: (opts: { pluginId: string }): Promise<InstallResult> => ipcRenderer.invoke(IPC.MARKETPLACE_INSTALL, opts),
     uninstall: (opts: { pluginId: string }): Promise<UninstallResult> => ipcRenderer.invoke(IPC.MARKETPLACE_UNINSTALL, opts),
+  },
+  harness: {
+    setCriteria: (opts: { projectId: string; criteria: string[] }): Promise<Project | undefined> =>
+      ipcRenderer.invoke(IPC.HARNESS_CRITERIA_SET, opts),
+    detectPreview: (opts: { projectId: string }): Promise<Project['uiPreview'] | null> =>
+      ipcRenderer.invoke(IPC.HARNESS_PREVIEW_DETECT, opts),
+    setPreview: (opts: { projectId: string; uiPreview: Project['uiPreview'] }): Promise<Project | undefined> =>
+      ipcRenderer.invoke(IPC.HARNESS_PREVIEW_SET, opts),
+    startRun: (opts: { projectId: string }): Promise<HarnessRun> => ipcRenderer.invoke(IPC.HARNESS_RUN_START, opts),
+    listRuns: (opts: { projectId: string }): Promise<HarnessRun[]> => ipcRenderer.invoke(IPC.HARNESS_RUN_LIST, opts),
+    setJevFeatures: (opts: { projectId: string; features: Partial<Project['jevFeatures']> }): Promise<Project | undefined> =>
+      ipcRenderer.invoke(IPC.HARNESS_JEV_SET_FEATURES, opts),
+    detectTest: (opts: { projectId: string }): Promise<Project['testCommand'] | null> => ipcRenderer.invoke(IPC.HARNESS_TEST_DETECT, opts),
+    setTest: (opts: { projectId: string; testCommand: Project['testCommand'] }): Promise<Project | undefined> =>
+      ipcRenderer.invoke(IPC.HARNESS_TEST_SET, opts),
+    criterionPrefilter: (opts: { projectId: string; criterion: string }): Promise<{ clear: boolean; confidence: number }> =>
+      ipcRenderer.invoke(IPC.HARNESS_CRITERION_PREFILTER, opts),
+  },
+  settings: {
+    typesafeStatus: (): Promise<{ configured: boolean; available: boolean }> => ipcRenderer.invoke(IPC.SETTINGS_TYPESAFE_STATUS),
+    typesafeSetKey: (opts: { apiKey: string }): Promise<{ configured: boolean; available: boolean }> =>
+      ipcRenderer.invoke(IPC.SETTINGS_TYPESAFE_SET_KEY, opts),
+    typesafeClearKey: (): Promise<{ configured: boolean; available: boolean }> => ipcRenderer.invoke(IPC.SETTINGS_TYPESAFE_CLEAR_KEY),
   },
 })

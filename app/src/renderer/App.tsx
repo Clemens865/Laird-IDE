@@ -13,6 +13,7 @@ import { KillSwitch } from './components/KillSwitch'
 import { MarketplaceView } from './components/MarketplaceView'
 import { PermissionControl } from './components/PermissionControl'
 import { ProjectTab } from './components/ProjectTab'
+import { HarnessView } from './components/HarnessView'
 import { SessionHistoryView } from './components/SessionHistoryView'
 import { SkillsView } from './components/SkillsView'
 import { SubagentRoster } from './components/SubagentRoster'
@@ -264,6 +265,12 @@ export function App() {
 
       {view === 'marketplace' ? (
         <MarketplaceView />
+      ) : view === 'harness' ? (
+        selected ? (
+          <HarnessView project={selected} onProjectUpdate={applyProjectUpdate} />
+        ) : (
+          <div style={{ padding: 40, color: 'var(--muted)' }}>Add a project first.</div>
+        )
       ) : view === 'history' ? (
         selected ? (
           <SessionHistoryView projectId={selected.id} />

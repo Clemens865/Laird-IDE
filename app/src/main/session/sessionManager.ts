@@ -77,6 +77,21 @@ interface ManagedSession {
    * (docs/research/observability-landscape-2026.md).
    */
   toolCallLogIdByToolUseId: Map<string, string>
+  /**
+   * tool_use id → that tool-call's own index in `pendingAgentBlocks`. The
+   * partial `stream_event` arrival (shape B) always carries an empty
+   * `input` (nothing has streamed in yet at `content_block_start` time), so
+   * `toFileChangeBlock` can only ever build a real `fileChange` block
+   * (path/diffStat) from the LATER, complete arrival (shape A) — a repeat
+   * tool-call event for an id already in this map overwrites that same
+   * array slot in place with the newer (more complete) block instead of
+   * being dropped, which previously left every real Write/Edit chip stuck
+   * on shape B's empty-input placeholder (confirmed live via
+   * e2e/two-project-isolation.mjs after `toolCallLogIdByToolUseId`'s own
+   * dedup fix: the activity-log duplicate was fixed, but the Turn's own
+   * chip silently regressed to the wrong, incomplete shape).
+   */
+  toolCallBlockIndexByToolUseId: Map<string, number>
   /** Set by `killSession` — tells `handleExit` to keep the session in `needs-review`, not silently report a clean `idle` exit for what was actually a forced stop. */
   killed: boolean
 }
@@ -217,6 +232,7 @@ export class SessionManager {
       pendingUsage: null,
       subagents: new Map(),
       toolCallLogIdByToolUseId: new Map(),
+      toolCallBlockIndexByToolUseId: new Map(),
       killed: false,
     }
     this.sessions.set(sessionId, managed)
@@ -298,15 +314,35 @@ export class SessionManager {
       return
     }
 
-    // See `toolCallLogIdByToolUseId`'s doc comment — a real `claude` run
-    // emits the same tool_use id twice (a partial stream_event, then the
-    // complete assistant message); dropped before the generic forward below
-    // so neither the renderer nor the activity log ever sees the repeat.
-    if (
-      event.kind === 'tool-call' &&
-      (event.payload as { id?: string }).id &&
-      managed.toolCallLogIdByToolUseId.has((event.payload as { id?: string }).id as string)
-    ) {
+    if (event.kind === 'tool-call') {
+      const payload = event.payload as { id?: string; name: string; input?: Record<string, unknown>; status?: string }
+      const block = toFileChangeBlock(payload) ?? { kind: 'toolCall' as const, name: payload.name, status: 'started' as const }
+      const existingIndex = payload.id ? managed.toolCallBlockIndexByToolUseId.get(payload.id) : undefined
+
+      if (existingIndex !== undefined) {
+        // A real `claude` run emits the same tool_use id twice — a partial
+        // stream_event (always empty `input`, nothing has streamed in yet
+        // at `content_block_start` time) then the complete assistant
+        // message. Only the second, complete arrival can ever produce a
+        // real `fileChange` block, so this overwrites the same array slot
+        // in place rather than appending a duplicate or being dropped
+        // outright — neither the renderer nor the activity log sees the
+        // repeat (see `toolCallLogIdByToolUseId`'s doc comment), but the
+        // eventually-finalized Turn still gets the real, complete data.
+        managed.pendingAgentBlocks[existingIndex] = block
+        return
+      }
+
+      managed.pendingAgentBlocks.push(block)
+      if (payload.id) managed.toolCallBlockIndexByToolUseId.set(payload.id, managed.pendingAgentBlocks.length - 1)
+
+      this.deps.onEvent(sessionId, event)
+      const logEntryId = this.appendActivityLog(sessionId, { kind: 'tool-call', payload })
+      // Remembered so a later `task_started` event (mapEvents.ts) can link
+      // its subagent back to this exact ActivityLogEntry via `tool_use_id`.
+      if (payload.id) {
+        managed.toolCallLogIdByToolUseId.set(payload.id, logEntryId)
+      }
       return
     }
 
@@ -322,18 +358,6 @@ export class SessionManager {
     if (event.kind === 'text') {
       const payload = event.payload as { text: string }
       managed.pendingAgentBlocks.push({ kind: 'text', text: payload.text })
-      return
-    }
-
-    if (event.kind === 'tool-call') {
-      const payload = event.payload as { id?: string; name: string; input?: Record<string, unknown>; status?: string }
-      managed.pendingAgentBlocks.push(toFileChangeBlock(payload) ?? { kind: 'toolCall', name: payload.name, status: 'started' })
-      const logEntryId = this.appendActivityLog(sessionId, { kind: 'tool-call', payload })
-      // Remembered so a later `task_started` event (mapEvents.ts) can link
-      // its subagent back to this exact ActivityLogEntry via `tool_use_id`.
-      if (payload.id) {
-        managed.toolCallLogIdByToolUseId.set(payload.id, logEntryId)
-      }
       return
     }
 

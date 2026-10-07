@@ -23,6 +23,8 @@ export function addProject(store: MemoryStore, opts: { path: string; name?: stri
     permissionTier: 'write',
     approvalMode: 'auto',
     autonomyRevoked: false,
+    harnessCriteria: [],
+    jevFeatures: { criterionRouting: false, shortcutDetection: false, criteriaPrefilter: false, adaptiveMultiRun: false },
   }
   store.upsertProject(project)
   return project

@@ -21,6 +21,8 @@ function makeProject(overrides: Partial<Project> = {}): Project {
     permissionTier: 'write',
     approvalMode: 'auto',
     autonomyRevoked: false,
+    harnessCriteria: [],
+    jevFeatures: { criterionRouting: false, shortcutDetection: false, criteriaPrefilter: false, adaptiveMultiRun: false },
     ...overrides,
   }
 }
@@ -129,6 +131,23 @@ describe('SessionManager', () => {
     const log = store.getActivityLog(sessionId)
     expect(log.filter((e) => e.kind === 'tool-call' && (e.payload as { id?: string }).id === 'toolu_dup')).toHaveLength(1)
     expect(onEvent.mock.calls.filter((call) => call[1]?.kind === 'tool-call')).toHaveLength(1)
+  })
+
+  it('upgrades a deduped tool-call\'s block in place with the complete data, rather than keeping the partial arrival\'s empty-input placeholder (real regression: the real CLI\'s partial stream_event always has empty input, only the later complete assistant message carries the real file_path/content)', async () => {
+    const { store, fakeTransport, manager } = setup()
+    const sessionId = await manager.startSession({ projectId: 'p1', prompt: 'create hello.txt' })
+
+    // Shape B: the partial stream_event — always empty input at content_block_start time.
+    fakeTransport.emit({ kind: 'tool-call', payload: { id: 'toolu_write1', name: 'Write', input: {}, status: 'started' } })
+    // Shape A: the complete assistant message, same tool_use id, real input.
+    fakeTransport.emit({
+      kind: 'tool-call',
+      payload: { id: 'toolu_write1', name: 'Write', input: { file_path: '/tmp/proj/hello.txt', content: 'line one\nline two' } },
+    })
+    fakeTransport.exit({ code: 0 })
+
+    const agentTurn = store.getTurns(sessionId).find((t) => t.role === 'agent')
+    expect(agentTurn?.blocks).toEqual([{ kind: 'fileChange', path: 'hello.txt', summary: 'created', diffStat: '+2' }])
   })
 
   it('pushes every new activity-log entry live, not just the raw transport event — the "always-visible action log" (Workstream D)', async () => {

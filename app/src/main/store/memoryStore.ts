@@ -1,6 +1,6 @@
 import { mkdirSync, readFileSync, writeFileSync, existsSync } from 'node:fs'
 import { dirname, join } from 'node:path'
-import type { ActivityLogEntry, Project, Session, Turn, UsageEvent } from '../../shared/types'
+import type { ActivityLogEntry, HarnessRun, Project, Session, Turn, UsageEvent } from '../../shared/types'
 
 interface StoreSnapshot {
   projects: Project[]
@@ -8,6 +8,7 @@ interface StoreSnapshot {
   turns: Turn[]
   activityLog: ActivityLogEntry[]
   usageEvents: UsageEvent[]
+  harnessRuns: HarnessRun[]
 }
 
 const DEBOUNCE_MS = 1_000
@@ -26,6 +27,7 @@ export class MemoryStore {
   private turns: Turn[] = []
   private activityLog: ActivityLogEntry[] = []
   private usageEvents: UsageEvent[] = []
+  private harnessRuns: HarnessRun[] = []
   private snapshotTimer: ReturnType<typeof setTimeout> | null = null
 
   constructor(private readonly snapshotPath: string | null) {
@@ -37,6 +39,7 @@ export class MemoryStore {
         this.turns = raw.turns ?? []
         this.activityLog = raw.activityLog ?? []
         this.usageEvents = raw.usageEvents ?? []
+        this.harnessRuns = raw.harnessRuns ?? []
       } catch (err) {
         console.error('[store] failed to load snapshot, starting empty', err)
       }
@@ -77,6 +80,43 @@ export class MemoryStore {
     const project = this.projects.get(projectId)
     if (!project) return
     this.upsertProject({ ...project, ...permissions })
+  }
+
+  /** The user-authored, numbered acceptance criteria a harness run checks — see `Project.harnessCriteria`. */
+  setHarnessCriteria(projectId: string, criteria: string[]): void {
+    const project = this.projects.get(projectId)
+    if (!project) return
+    this.upsertProject({ ...project, harnessCriteria: criteria })
+  }
+
+  /** The detect-then-confirm dev command/port a harness run uses to reach this project's own UI — see `Project.uiPreview`. */
+  setUiPreview(projectId: string, uiPreview: Project['uiPreview']): void {
+    const project = this.projects.get(projectId)
+    if (!project) return
+    this.upsertProject({ ...project, uiPreview })
+  }
+
+  /** Per-feature TypeSafe/Jev opt-in for harness runs — see `Project.jevFeatures`/`JevFeatures`. */
+  setJevFeatures(projectId: string, features: Partial<Project['jevFeatures']>): void {
+    const project = this.projects.get(projectId)
+    if (!project) return
+    this.upsertProject({ ...project, jevFeatures: { ...project.jevFeatures, ...features } })
+  }
+
+  /** Detect-then-confirm test command a harness run uses for criteria that reduce to "the tests should pass" — see `Project.testCommand`. */
+  setTestCommand(projectId: string, testCommand: Project['testCommand']): void {
+    const project = this.projects.get(projectId)
+    if (!project) return
+    this.upsertProject({ ...project, testCommand })
+  }
+
+  appendHarnessRun(run: HarnessRun): void {
+    this.harnessRuns.push(run)
+    this.scheduleSnapshot()
+  }
+
+  getHarnessRuns(projectId: string): HarnessRun[] {
+    return this.harnessRuns.filter((r) => r.projectId === projectId)
   }
 
   removeProject(id: string): void {
@@ -142,6 +182,7 @@ export class MemoryStore {
       turns: this.turns,
       activityLog: this.activityLog,
       usageEvents: this.usageEvents,
+      harnessRuns: this.harnessRuns,
     }
     try {
       mkdirSync(dirname(this.snapshotPath), { recursive: true })

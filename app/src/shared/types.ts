@@ -42,6 +42,69 @@ export interface Project {
    * explicitly re-granted — not just "the current one stopped."
    */
   autonomyRevoked: boolean
+  /**
+   * Numbered, plain-language acceptance criteria written by the user
+   * (observability-trust-and-harness.md's "harness mode") — a project's
+   * standing spec, snapshotted onto each `HarnessRun.spec` at run time so a
+   * past run's record never silently drifts if the spec is edited later.
+   */
+  harnessCriteria: string[]
+  /**
+   * The dev command + port a harness run uses to reach this project's own
+   * running UI for a screenshot/click-through — detect-then-confirm only
+   * (`src/main/harness/previewDetect.ts`), never silently started.
+   * `undefined` means "not configured yet," not "no UI."
+   */
+  uiPreview?: { command: string; port: number | null }
+  /**
+   * The real command Laird runs to check criteria that reduce to "the
+   * tests should pass" (`src/main/harness/testRunner.ts`) — detect-then-
+   * confirm only, same discipline as `uiPreview`: never silently executed.
+   * `undefined` means "not configured yet."
+   */
+  testCommand?: { command: string }
+  /** Per-feature TypeSafe/Jev opt-in for harness runs — see `JevFeatures`. */
+  jevFeatures: JevFeatures
+}
+
+/**
+ * Each capability independently toggleable (the "Jev menu," user-directed,
+ * 2026-10-07) — all off by default, all requiring a machine-wide API key
+ * (`src/main/settings/typesafeKey.ts`) to take effect at all. A third-
+ * party, non-local API call, so every capability is explicit and opt-in,
+ * never ambient — matching Laird's existing discipline for global
+ * skills/MCP materialization.
+ */
+export interface JevFeatures {
+  /**
+   * A 3-way `choice` routing each criterion to `deterministic_test` /
+   * `code_inspection` / `ui_interaction` before any reviewer call runs —
+   * `src/main/harness/jev.ts`'s `classifyCriterionCheckMethod`. Lets a
+   * criterion that reduces to "do the tests pass" skip the reviewer
+   * entirely in favor of actually running `testCommand` (free, VERIFIED,
+   * no LLM judgment).
+   */
+  criterionRouting: boolean
+  /**
+   * A second opinion flagging a reviewer rationale that doesn't cite
+   * concrete evidence — sets `HarnessCriterionResult.evidenceQualityFlag`,
+   * never silently changes the reviewer's own disposition/evidenceTier.
+   */
+  shortcutDetection: boolean
+  /**
+   * A cheap check at criterion-authoring time (before any run is ever
+   * paid for) flagging wording too vague to check — advisory only, never
+   * blocks adding the criterion.
+   */
+  criteriaPrefilter: boolean
+  /**
+   * Re-runs a second, independent fresh-context reviewer pass for any
+   * criterion whose first pass came back with weak evidence (not
+   * VERIFIED/CORROBORATED, or flagged by shortcutDetection), taking the
+   * worst case of the two rather than trusting a single pass. Can fire
+   * from evidenceTier weakness alone even if shortcutDetection is off.
+   */
+  adaptiveMultiRun: boolean
 }
 
 export type SessionStatus = 'running' | 'idle' | 'needs-review'
@@ -153,13 +216,46 @@ export interface UsageEvent {
 
 export type EvidenceTier = 'VERIFIED' | 'CORROBORATED' | 'UNCORROBORATED' | 'INFERENCE' | 'STATED'
 
+/**
+ * Four outcomes, not three (observability-trust-and-harness.md) —
+ * `unverifiable` is a property of the *criterion* (too ambiguous to check as
+ * written), never silently folded into `hold`/`rework`.
+ */
+export type HarnessDisposition = 'ship' | 'hold' | 'rework' | 'unverifiable'
+
+export interface HarnessCriterionResult {
+  criterion: string
+  disposition: HarnessDisposition
+  evidenceTier: EvidenceTier
+  rationale: string
+  /**
+   * What actually backs `evidenceTier` — an `ActivityLogEntry.id` for a
+   * code/action claim, or a local screenshot path for a UI claim. Omitted
+   * only for a `STATED`/`unverifiable` result with nothing to point at.
+   */
+  evidenceRef?: string
+  /**
+   * Set only when TypeSafe/Jev shortcut-detection is enabled and flags this
+   * rationale as not citing concrete, specific evidence — a fast, second,
+   * independent opinion on whether the reviewer actually looked, directly
+   * answering the PRD's own named "a reviewer that can take a shortcut will
+   * sometimes take it" worry. Never silently changes `disposition` or
+   * `evidenceTier` — only surfaces a separate, visible signal for a human
+   * to weigh.
+   */
+  evidenceQualityFlag?: { confidence: number; note: string }
+}
+
 export interface HarnessRun {
   id: string
   projectId: string
+  /** Snapshotted from `Project.harnessCriteria` at run time — see its own doc comment. */
   spec: string[]
-  disposition: 'ship' | 'hold' | 'rework'
-  perCriterionResult: Array<{ passed: boolean; evidenceTier: EvidenceTier }>
-  linkedTurnId: string
+  /** Worst-case across `perCriterionResult` — ships only if every criterion does. */
+  disposition: HarnessDisposition
+  perCriterionResult: HarnessCriterionResult[]
+  linkedTurnId?: string
+  createdAt: string
 }
 
 export interface PluginInstall {

@@ -14,6 +14,8 @@ function makeProject(overrides: Partial<Project> = {}): Project {
     permissionTier: 'write',
     approvalMode: 'auto',
     autonomyRevoked: false,
+    harnessCriteria: [],
+    jevFeatures: { criterionRouting: false, shortcutDetection: false, criteriaPrefilter: false, adaptiveMultiRun: false },
     ...overrides,
   }
 }
@@ -46,5 +48,32 @@ describe('MemoryStore — project registry', () => {
 
     expect(store.listProjects()).toHaveLength(0)
     expect(store.getProject('p1')).toBeUndefined()
+  })
+})
+
+describe('MemoryStore — harness mode', () => {
+  it('sets a project\'s harness criteria', () => {
+    const store = new MemoryStore(null)
+    store.upsertProject(makeProject({ id: 'p1' }))
+    store.setHarnessCriteria('p1', ['Signup works on mobile'])
+    expect(store.getProject('p1')?.harnessCriteria).toEqual(['Signup works on mobile'])
+  })
+
+  it('sets a project\'s UI preview config', () => {
+    const store = new MemoryStore(null)
+    store.upsertProject(makeProject({ id: 'p1' }))
+    store.setUiPreview('p1', { command: 'npm run dev', port: 5173 })
+    expect(store.getProject('p1')?.uiPreview).toEqual({ command: 'npm run dev', port: 5173 })
+  })
+
+  it('appends and lists harness runs scoped to their project', () => {
+    const store = new MemoryStore(null)
+    store.upsertProject(makeProject({ id: 'p1' }))
+    store.upsertProject(makeProject({ id: 'p2' }))
+    store.appendHarnessRun({ id: 'r1', projectId: 'p1', spec: [], disposition: 'unverifiable', perCriterionResult: [], createdAt: new Date().toISOString() })
+    store.appendHarnessRun({ id: 'r2', projectId: 'p2', spec: [], disposition: 'unverifiable', perCriterionResult: [], createdAt: new Date().toISOString() })
+
+    expect(store.getHarnessRuns('p1').map((r) => r.id)).toEqual(['r1'])
+    expect(store.getHarnessRuns('p2').map((r) => r.id)).toEqual(['r2'])
   })
 })

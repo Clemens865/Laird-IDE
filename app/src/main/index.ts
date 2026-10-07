@@ -1,5 +1,5 @@
 import { join } from 'node:path'
-import { app, BrowserWindow } from 'electron'
+import { app, BrowserWindow, safeStorage } from 'electron'
 import { IPC } from './ipc/channels'
 import { ipcHandle, registerCleanup, runCleanups } from './ipc/registry'
 import { addProject } from './project/registry'
@@ -9,6 +9,11 @@ import { discoverSkillsAndAgents, resolveEnabledSkills } from './skills/discover
 import { detectStackSignals, recommendGlobalSkills } from './skills/recommend'
 import { createProjectSkill } from './skills/create'
 import { browsePlugins, installPlugin, listMarketplaces, uninstallPlugin } from './skills/marketplace'
+import { detectPreviewCommand } from './harness/previewDetect'
+import { detectTestCommand } from './harness/testRunner'
+import { runReviewer } from './harness/reviewer'
+import { classifyCriterionClarity } from './harness/jev'
+import { TypesafeKeyStore, defaultTypesafeKeyPath } from './settings/typesafeKey'
 import { MemoryStore, defaultSnapshotPath } from './store/memoryStore'
 import { SessionManager } from './session/sessionManager'
 import { buildSessionHistory } from './session/history'
@@ -41,6 +46,7 @@ function createWindow(): BrowserWindow {
 }
 
 const store = new MemoryStore(isDev ? null : defaultSnapshotPath(app.getPath('userData')))
+const typesafeKeyStore = new TypesafeKeyStore(defaultTypesafeKeyPath(app.getPath('userData')), safeStorage)
 
 /**
  * The real root cause of a real hang, found live: quitting the app while a
@@ -197,6 +203,90 @@ ipcHandle(IPC.MARKETPLACE_INSTALL, (event, opts: { pluginId: string }) => {
 ipcHandle(IPC.MARKETPLACE_UNINSTALL, (event, opts: { pluginId: string }) => {
   assertMainFrame(event)
   return uninstallPlugin(opts.pluginId)
+})
+
+ipcHandle(IPC.HARNESS_CRITERIA_SET, (event, opts: { projectId: string; criteria: string[] }) => {
+  assertMainFrame(event)
+  store.setHarnessCriteria(opts.projectId, opts.criteria)
+  return store.getProject(opts.projectId)
+})
+
+ipcHandle(IPC.HARNESS_PREVIEW_DETECT, (event, opts: { projectId: string }) => {
+  assertMainFrame(event)
+  const project = store.getProject(opts.projectId)
+  if (!project) throw new Error(`HARNESS_PREVIEW_DETECT: unknown projectId ${opts.projectId}`)
+  return detectPreviewCommand(project.path)
+})
+
+ipcHandle(IPC.HARNESS_PREVIEW_SET, (event, opts: { projectId: string; uiPreview: Project['uiPreview'] }) => {
+  assertMainFrame(event)
+  store.setUiPreview(opts.projectId, opts.uiPreview)
+  return store.getProject(opts.projectId)
+})
+
+ipcHandle(IPC.HARNESS_RUN_START, async (event, opts: { projectId: string }) => {
+  assertMainFrame(event)
+  const project = store.getProject(opts.projectId)
+  if (!project) throw new Error(`HARNESS_RUN_START: unknown projectId ${opts.projectId}`)
+  if (project.harnessCriteria.length === 0) throw new Error('HARNESS_RUN_START: project has no harness criteria to check')
+  const anyJevFeatureEnabled = Object.values(project.jevFeatures).some(Boolean)
+  const jevApiKey = anyJevFeatureEnabled ? (typesafeKeyStore.getKey() ?? undefined) : undefined
+  const run = await runReviewer(project, { jevApiKey })
+  store.appendHarnessRun(run)
+  return run
+})
+
+ipcHandle(IPC.HARNESS_RUN_LIST, (event, opts: { projectId: string }) => {
+  assertMainFrame(event)
+  return store.getHarnessRuns(opts.projectId)
+})
+
+ipcHandle(IPC.HARNESS_JEV_SET_FEATURES, (event, opts: { projectId: string; features: Partial<Project['jevFeatures']> }) => {
+  assertMainFrame(event)
+  store.setJevFeatures(opts.projectId, opts.features)
+  return store.getProject(opts.projectId)
+})
+
+ipcHandle(IPC.HARNESS_TEST_DETECT, (event, opts: { projectId: string }) => {
+  assertMainFrame(event)
+  const project = store.getProject(opts.projectId)
+  if (!project) throw new Error(`HARNESS_TEST_DETECT: unknown projectId ${opts.projectId}`)
+  return detectTestCommand(project.path)
+})
+
+ipcHandle(IPC.HARNESS_TEST_SET, (event, opts: { projectId: string; testCommand: Project['testCommand'] }) => {
+  assertMainFrame(event)
+  store.setTestCommand(opts.projectId, opts.testCommand)
+  return store.getProject(opts.projectId)
+})
+
+ipcHandle(IPC.HARNESS_CRITERION_PREFILTER, async (event, opts: { projectId: string; criterion: string }) => {
+  assertMainFrame(event)
+  const project = store.getProject(opts.projectId)
+  if (!project) throw new Error(`HARNESS_CRITERION_PREFILTER: unknown projectId ${opts.projectId}`)
+  if (!project.jevFeatures.criteriaPrefilter) return { clear: true, confidence: 0 }
+  const apiKey = typesafeKeyStore.getKey()
+  if (!apiKey) return { clear: true, confidence: 0 }
+  return classifyCriterionClarity(apiKey, opts.criterion)
+})
+
+ipcHandle(IPC.SETTINGS_TYPESAFE_STATUS, (event) => {
+  assertMainFrame(event)
+  return { configured: typesafeKeyStore.hasKey(), available: typesafeKeyStore.isAvailable() }
+})
+
+ipcHandle(IPC.SETTINGS_TYPESAFE_SET_KEY, (event, opts: { apiKey: string }) => {
+  assertMainFrame(event)
+  // Validation errors (e.g. secure storage unavailable) propagate to the
+  // renderer's own try/catch, same convention as SKILLS_CREATE.
+  typesafeKeyStore.setKey(opts.apiKey)
+  return { configured: typesafeKeyStore.hasKey(), available: typesafeKeyStore.isAvailable() }
+})
+
+ipcHandle(IPC.SETTINGS_TYPESAFE_CLEAR_KEY, (event) => {
+  assertMainFrame(event)
+  typesafeKeyStore.clearKey()
+  return { configured: typesafeKeyStore.hasKey(), available: typesafeKeyStore.isAvailable() }
 })
 
 app.whenReady().then(() => {

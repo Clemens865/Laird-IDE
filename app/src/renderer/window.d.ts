@@ -1,6 +1,6 @@
 export {}
 
-import type { Project, Skill, SubagentDefinition } from '../shared/types'
+import type { HarnessRun, Project, Skill, SubagentDefinition } from '../shared/types'
 
 interface SessionTransportEvent {
   kind: string
@@ -120,6 +120,22 @@ declare global {
         browse: () => Promise<BrowseResult>
         install: (opts: { pluginId: string }) => Promise<InstallResult>
         uninstall: (opts: { pluginId: string }) => Promise<UninstallResult>
+      }
+      harness: {
+        setCriteria: (opts: { projectId: string; criteria: string[] }) => Promise<Project | undefined>
+        detectPreview: (opts: { projectId: string }) => Promise<Project['uiPreview'] | null>
+        setPreview: (opts: { projectId: string; uiPreview: Project['uiPreview'] }) => Promise<Project | undefined>
+        startRun: (opts: { projectId: string }) => Promise<HarnessRun>
+        listRuns: (opts: { projectId: string }) => Promise<HarnessRun[]>
+        setJevFeatures: (opts: { projectId: string; features: Partial<Project['jevFeatures']> }) => Promise<Project | undefined>
+        detectTest: (opts: { projectId: string }) => Promise<Project['testCommand'] | null>
+        setTest: (opts: { projectId: string; testCommand: Project['testCommand'] }) => Promise<Project | undefined>
+        criterionPrefilter: (opts: { projectId: string; criterion: string }) => Promise<{ clear: boolean; confidence: number }>
+      }
+      settings: {
+        typesafeStatus: () => Promise<{ configured: boolean; available: boolean }>
+        typesafeSetKey: (opts: { apiKey: string }) => Promise<{ configured: boolean; available: boolean }>
+        typesafeClearKey: () => Promise<{ configured: boolean; available: boolean }>
       }
     }
   }

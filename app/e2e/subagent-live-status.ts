@@ -48,6 +48,8 @@ store.upsertProject({
   permissionTier: 'full',
   approvalMode: 'auto',
   autonomyRevoked: false,
+  harnessCriteria: [],
+    jevFeatures: { criterionRouting: false, shortcutDetection: false, criteriaPrefilter: false, adaptiveMultiRun: false },
 })
 
 const seenBySubagentId = new Map<string, Subagent[]>()
