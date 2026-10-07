@@ -424,3 +424,36 @@ describe('runReviewer — chunk 3: UI-shaped criteria get a real browser-driven 
     expect(run.perCriterionResult[0].rationale).toContain('UI reviewer run failed')
   })
 })
+
+describe('runReviewer — cancellation via AbortSignal', () => {
+  function spawnHungProcess(): ReturnType<typeof spawn> {
+    return spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'])
+  }
+
+  it('returns every criterion as honestly canceled, without starting anything, when the signal is already aborted', async () => {
+    const spawnFn = vi.fn(() => spawnHungProcess() as never)
+    const controller = new AbortController()
+    controller.abort()
+    const project = makeProject({ harnessCriteria: ['A', 'B'] })
+
+    const run = await runReviewer(project, { spawnFn, signal: controller.signal })
+
+    expect(spawnFn).not.toHaveBeenCalled()
+    expect(run.perCriterionResult).toHaveLength(2)
+    expect(run.perCriterionResult.every((r) => r.disposition === 'unverifiable' && r.rationale.includes('Canceled'))).toBe(true)
+  })
+
+  it('kills a real in-flight reviewer process when aborted mid-run, reporting an honest canceled result', async () => {
+    const spawnFn = vi.fn(() => spawnHungProcess() as never)
+    const controller = new AbortController()
+    const project = makeProject({ harnessCriteria: ['A'] })
+
+    const runPromise = runReviewer(project, { spawnFn, signal: controller.signal })
+    await new Promise((r) => setTimeout(r, 100))
+    controller.abort()
+
+    const run = await runPromise
+    expect(run.perCriterionResult[0]).toMatchObject({ disposition: 'unverifiable', evidenceTier: 'STATED' })
+    expect(run.perCriterionResult[0].rationale).toContain('Canceled')
+  })
+})

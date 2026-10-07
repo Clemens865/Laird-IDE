@@ -140,6 +140,15 @@ function parseReviewerOutput(rawText: string, criteria: string[]): HarnessCriter
   )
 }
 
+function canceledResults(criteria: string[]): HarnessCriterionResult[] {
+  return criteria.map((criterion) => ({
+    criterion,
+    disposition: 'unverifiable',
+    evidenceTier: 'STATED',
+    rationale: 'Canceled by the user before this criterion was checked.',
+  }))
+}
+
 function worstCaseDisposition(results: HarnessCriterionResult[]): HarnessDisposition {
   if (results.length === 0) return 'unverifiable'
   return results.reduce<HarnessDisposition>(
@@ -148,9 +157,24 @@ function worstCaseDisposition(results: HarnessCriterionResult[]): HarnessDisposi
   )
 }
 
-/** One real, fresh-context `claude -p` reviewer invocation over a given set of criteria — the shared core of both the first pass and adaptive re-checks. */
-async function runReviewerPass(project: Project, criteria: string[], opts: { spawnFn?: typeof spawn }): Promise<HarnessCriterionResult[]> {
+/**
+ * One real, fresh-context `claude -p` reviewer invocation over a given set
+ * of criteria — the shared core of both the first pass and adaptive
+ * re-checks. `signal`, when aborted (the user canceling the in-flight
+ * harness run), kills the real `claude` process via the same `stop()`
+ * mechanism the kill switch already uses, rather than leaving it running
+ * unobserved.
+ */
+async function runReviewerPass(
+  project: Project,
+  criteria: string[],
+  opts: { spawnFn?: typeof spawn; signal?: AbortSignal },
+): Promise<HarnessCriterionResult[]> {
+  if (opts.signal?.aborted) return canceledResults(criteria)
+
   const transport = new ClaudeHeadlessTransport({ permissionTier: 'read', spawnFn: opts.spawnFn })
+  const onAbort = () => transport.stop()
+  opts.signal?.addEventListener('abort', onAbort)
 
   let fullText = ''
   transport.onEvent((e) => {
@@ -161,6 +185,9 @@ async function runReviewerPass(project: Project, criteria: string[], opts: { spa
     transport.onExit(resolve)
     transport.start({ cwd: project.path, prompt: buildReviewerPrompt(criteria), model: REVIEWER_MODEL })
   })
+  opts.signal?.removeEventListener('abort', onAbort)
+
+  if (opts.signal?.aborted) return canceledResults(criteria)
 
   return exitInfo.failure
     ? criteria.map((criterion) => ({
@@ -183,8 +210,10 @@ async function runReviewerPass(project: Project, criteria: string[], opts: { spa
 async function runUiReviewerPass(
   project: Project,
   criteria: string[],
-  opts: { spawnFn?: typeof spawn; devServerSpawnFn?: typeof spawn; waitForPortFn?: typeof waitForPort },
+  opts: { spawnFn?: typeof spawn; devServerSpawnFn?: typeof spawn; waitForPortFn?: typeof waitForPort; signal?: AbortSignal },
 ): Promise<HarnessCriterionResult[]> {
+  if (opts.signal?.aborted) return canceledResults(criteria)
+
   const uiPreview = project.uiPreview
   if (!uiPreview) {
     return criteria.map((criterion) => ({
@@ -207,6 +236,7 @@ async function runUiReviewerPass(
   try {
     const waitFn = opts.waitForPortFn ?? waitForPort
     const ready = await waitFn(uiPreview.port, { timeoutMs: DEV_SERVER_READY_TIMEOUT_MS })
+    if (opts.signal?.aborted) return canceledResults(criteria)
     if (!ready) {
       return criteria.map((criterion) => ({
         criterion,
@@ -222,6 +252,8 @@ async function runUiReviewerPass(
       allowedToolsOverride: UI_REVIEWER_ALLOWED_TOOLS,
       mcpServers: PLAYWRIGHT_MCP_SERVERS,
     })
+    const onAbort = () => transport.stop()
+    opts.signal?.addEventListener('abort', onAbort)
 
     let fullText = ''
     transport.onEvent((e) => {
@@ -232,6 +264,9 @@ async function runUiReviewerPass(
       transport.onExit(resolve)
       transport.start({ cwd: project.path, prompt: buildUiReviewerPrompt(criteria, url), model: REVIEWER_MODEL })
     })
+    opts.signal?.removeEventListener('abort', onAbort)
+
+    if (opts.signal?.aborted) return canceledResults(criteria)
 
     return exitInfo.failure
       ? criteria.map((criterion) => ({
@@ -303,10 +338,23 @@ export async function runReviewer(
     testSpawnFn?: typeof spawn
     devServerSpawnFn?: typeof spawn
     waitForPortFn?: typeof waitForPort
+    /** Aborting cancels the in-flight run — kills whatever real process (reviewer/dev-server/test command) is currently active and reports the remaining, not-yet-checked criteria honestly as canceled rather than guessing. */
+    signal?: AbortSignal
   } = {},
 ): Promise<HarnessRun> {
   const allCriteria = project.harnessCriteria
   const useJev = Boolean(opts.jevApiKey)
+
+  if (opts.signal?.aborted) {
+    return {
+      id: randomUUID(),
+      projectId: project.id,
+      spec: [...allCriteria],
+      disposition: 'unverifiable',
+      perCriterionResult: canceledResults(allCriteria),
+      createdAt: new Date().toISOString(),
+    }
+  }
 
   const checkMethods =
     useJev && project.jevFeatures.criterionRouting
@@ -337,14 +385,14 @@ export async function runReviewer(
     // to the same real-world fact ("did the test command pass"), so running
     // it once and reusing the result is both cheaper and more honest than
     // re-running the same command per criterion.
-    const testResult = await runTestCommand(project.path, project.testCommand.command, { spawnFn: opts.testSpawnFn })
+    const testResult = await runTestCommand(project.path, project.testCommand.command, { spawnFn: opts.testSpawnFn, signal: opts.signal })
     for (const criterion of deterministicCriteria) {
       resultByCriterion.set(criterion, testRunToCriterionResult(criterion, project.testCommand.command, testResult))
     }
   }
 
   if (reviewerBoundCriteria.length > 0) {
-    const reviewed = await runReviewerPass(project, reviewerBoundCriteria, opts)
+    const reviewed = opts.signal?.aborted ? canceledResults(reviewerBoundCriteria) : await runReviewerPass(project, reviewerBoundCriteria, opts)
     for (const r of reviewed) resultByCriterion.set(r.criterion, r)
   }
 
@@ -352,13 +400,13 @@ export async function runReviewer(
     // One dev-server start/stop cycle and one browser-reviewer pass covers
     // every UI-shaped criterion together — same "run once, reuse" economy
     // as the deterministic-test bucket.
-    const uiReviewed = await runUiReviewerPass(project, uiShapedCriteria, opts)
+    const uiReviewed = opts.signal?.aborted ? canceledResults(uiShapedCriteria) : await runUiReviewerPass(project, uiShapedCriteria, opts)
     for (const r of uiReviewed) resultByCriterion.set(r.criterion, r)
   }
 
   const liveReviewedCriteria = [...reviewerBoundCriteria, ...uiShapedCriteria]
 
-  if (useJev && project.jevFeatures.shortcutDetection && liveReviewedCriteria.length > 0) {
+  if (!opts.signal?.aborted && useJev && project.jevFeatures.shortcutDetection && liveReviewedCriteria.length > 0) {
     const reviewerResults = liveReviewedCriteria.map((c) => resultByCriterion.get(c)!)
     const flags = await flagShortcutRationales(opts.jevApiKey!, reviewerResults, opts.fetchFn)
     flags.forEach((confidence, i) => {
@@ -370,7 +418,7 @@ export async function runReviewer(
     })
   }
 
-  if (useJev && project.jevFeatures.adaptiveMultiRun) {
+  if (!opts.signal?.aborted && useJev && project.jevFeatures.adaptiveMultiRun) {
     const isWeak = (criterion: string) => {
       const r = resultByCriterion.get(criterion)!
       return r.disposition !== 'unverifiable' && (WEAK_EVIDENCE_TIERS.has(r.evidenceTier) || Boolean(r.evidenceQualityFlag))

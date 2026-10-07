@@ -52,21 +52,36 @@ describe('runTestCommand — real, free process execution (no mocking, no API co
     const result = await runTestCommand(process.cwd(), 'sleep 60', { timeoutMs: 100 })
     expect(result.timedOut).toBe(true)
   }, 10_000)
+
+  it('kills a real running command when the signal aborts, and reports canceled', async () => {
+    const controller = new AbortController()
+    const resultPromise = runTestCommand(process.cwd(), 'sleep 60', { signal: controller.signal })
+    await new Promise((r) => setTimeout(r, 100))
+    controller.abort()
+    const result = await resultPromise
+    expect(result).toMatchObject({ canceled: true, timedOut: false })
+  }, 10_000)
 })
 
 describe('testRunToCriterionResult', () => {
   it('maps exit code 0 to ship/VERIFIED', () => {
-    const result = testRunToCriterionResult('The tests should pass', 'npm test', { exitCode: 0, output: '', timedOut: false })
+    const result = testRunToCriterionResult('The tests should pass', 'npm test', { exitCode: 0, output: '', timedOut: false, canceled: false })
     expect(result).toMatchObject({ disposition: 'ship', evidenceTier: 'VERIFIED' })
   })
 
   it('maps a non-zero exit code to rework/VERIFIED, not a guess', () => {
-    const result = testRunToCriterionResult('The tests should pass', 'npm test', { exitCode: 1, output: '', timedOut: false })
+    const result = testRunToCriterionResult('The tests should pass', 'npm test', { exitCode: 1, output: '', timedOut: false, canceled: false })
     expect(result).toMatchObject({ disposition: 'rework', evidenceTier: 'VERIFIED' })
   })
 
   it('maps a timeout to an honest unverifiable, not a guessed ship or rework', () => {
-    const result = testRunToCriterionResult('The tests should pass', 'npm test', { exitCode: null, output: '', timedOut: true })
+    const result = testRunToCriterionResult('The tests should pass', 'npm test', { exitCode: null, output: '', timedOut: true, canceled: false })
     expect(result).toMatchObject({ disposition: 'unverifiable', evidenceTier: 'STATED' })
+  })
+
+  it('maps a cancellation to an honest unverifiable, distinct from a timeout', () => {
+    const result = testRunToCriterionResult('The tests should pass', 'npm test', { exitCode: null, output: '', timedOut: false, canceled: true })
+    expect(result).toMatchObject({ disposition: 'unverifiable', evidenceTier: 'STATED' })
+    expect(result.rationale).toContain('Canceled')
   })
 })

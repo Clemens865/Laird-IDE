@@ -35,6 +35,7 @@ export interface TestRunResult {
   exitCode: number | null
   output: string
   timedOut: boolean
+  canceled: boolean
 }
 
 /**
@@ -42,12 +43,14 @@ export interface TestRunResult {
  * bounded process execution. Never called without an explicit
  * `Project.testCommand` the user already confirmed (same discipline as
  * `uiPreview`). A hard timeout kills a hung suite rather than blocking a
- * harness run forever; output is truncated, never unbounded.
+ * harness run forever; output is truncated, never unbounded. `signal`, when
+ * aborted (a user canceling the in-flight harness run), kills the real
+ * process the same way the timeout does.
  */
 export function runTestCommand(
   projectPath: string,
   command: string,
-  opts: { spawnFn?: typeof spawn; timeoutMs?: number } = {},
+  opts: { spawnFn?: typeof spawn; timeoutMs?: number; signal?: AbortSignal } = {},
 ): Promise<TestRunResult> {
   const spawnFn = opts.spawnFn ?? spawn
   const timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS
@@ -56,6 +59,7 @@ export function runTestCommand(
     const child = spawnFn(command, { cwd: projectPath, shell: true, stdio: ['ignore', 'pipe', 'pipe'] }) as ChildProcess
     let output = ''
     let timedOut = false
+    let canceled = false
     let settled = false
 
     const timer = setTimeout(() => {
@@ -63,6 +67,12 @@ export function runTestCommand(
       child.kill('SIGTERM')
     }, timeoutMs)
     timer.unref()
+
+    const onAbort = () => {
+      canceled = true
+      child.kill('SIGTERM')
+    }
+    opts.signal?.addEventListener('abort', onAbort)
 
     child.stdout?.on('data', (chunk: Buffer) => {
       output += chunk.toString('utf8')
@@ -74,19 +84,29 @@ export function runTestCommand(
       if (settled) return
       settled = true
       clearTimeout(timer)
-      resolve({ exitCode: null, output: `${output}\n${err.message}`.trim().slice(0, MAX_OUTPUT_CHARS), timedOut })
+      opts.signal?.removeEventListener('abort', onAbort)
+      resolve({ exitCode: null, output: `${output}\n${err.message}`.trim().slice(0, MAX_OUTPUT_CHARS), timedOut, canceled })
     })
     child.on('exit', (code) => {
       if (settled) return
       settled = true
       clearTimeout(timer)
-      resolve({ exitCode: code, output: output.slice(0, MAX_OUTPUT_CHARS), timedOut })
+      opts.signal?.removeEventListener('abort', onAbort)
+      resolve({ exitCode: code, output: output.slice(0, MAX_OUTPUT_CHARS), timedOut, canceled })
     })
   })
 }
 
 /** Maps a real test-run outcome to a harness result — exit code 0 is the only "ship," never a guess. */
 export function testRunToCriterionResult(criterion: string, command: string, result: TestRunResult): HarnessCriterionResult {
+  if (result.canceled) {
+    return {
+      criterion,
+      disposition: 'unverifiable',
+      evidenceTier: 'STATED',
+      rationale: 'Canceled by the user before this criterion was checked.',
+    }
+  }
   if (result.timedOut) {
     return {
       criterion,

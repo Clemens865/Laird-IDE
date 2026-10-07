@@ -28,6 +28,7 @@ export const IPC = {
   HARNESS_PREVIEW_DETECT: 'harness:preview-detect',
   HARNESS_PREVIEW_SET: 'harness:preview-set',
   HARNESS_RUN_START: 'harness:run-start',
+  HARNESS_RUN_CANCEL: 'harness:run-cancel',
   HARNESS_RUN_LIST: 'harness:run-list',
   HARNESS_JEV_SET_FEATURES: 'harness:jev-set-features',
   HARNESS_TEST_DETECT: 'harness:test-detect',

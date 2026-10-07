@@ -229,6 +229,10 @@ export function HarnessView({ project, onProjectUpdate }: { project: Project; on
     }
   }
 
+  async function handleCancelRun() {
+    await window.laird.harness.cancelRun({ projectId: project.id })
+  }
+
   async function handleSaveApiKey() {
     const apiKey = apiKeyDraft.trim()
     if (!apiKey) return
@@ -486,17 +490,29 @@ export function HarnessView({ project, onProjectUpdate }: { project: Project; on
       <div className="skills-section">
         <div className="label" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           Run harness
-          <div
-            className="btn"
-            onClick={running || project.harnessCriteria.length === 0 ? undefined : handleRun}
-            data-testid="harness-run-button"
-            style={{
-              cursor: running || project.harnessCriteria.length === 0 ? 'default' : 'pointer',
-              opacity: running || project.harnessCriteria.length === 0 ? 0.5 : 1,
-              fontWeight: 600,
-            }}
-          >
-            {running ? 'Running…' : 'Run harness'}
+          <div style={{ display: 'flex', gap: 8 }}>
+            {running && (
+              <div
+                className="btn"
+                onClick={handleCancelRun}
+                data-testid="harness-run-cancel"
+                style={{ cursor: 'pointer', color: 'var(--state-danger)' }}
+              >
+                Take back control
+              </div>
+            )}
+            <div
+              className="btn"
+              onClick={running || project.harnessCriteria.length === 0 ? undefined : handleRun}
+              data-testid="harness-run-button"
+              style={{
+                cursor: running || project.harnessCriteria.length === 0 ? 'default' : 'pointer',
+                opacity: running || project.harnessCriteria.length === 0 ? 0.5 : 1,
+                fontWeight: 600,
+              }}
+            >
+              {running ? 'Running…' : 'Run harness'}
+            </div>
           </div>
         </div>
         {project.harnessCriteria.length === 0 && (

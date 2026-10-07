@@ -59,6 +59,7 @@ contextBridge.exposeInMainWorld('laird', {
     setPreview: (opts: { projectId: string; uiPreview: Project['uiPreview'] }): Promise<Project | undefined> =>
       ipcRenderer.invoke(IPC.HARNESS_PREVIEW_SET, opts),
     startRun: (opts: { projectId: string }): Promise<HarnessRun> => ipcRenderer.invoke(IPC.HARNESS_RUN_START, opts),
+    cancelRun: (opts: { projectId: string }): Promise<void> => ipcRenderer.invoke(IPC.HARNESS_RUN_CANCEL, opts),
     listRuns: (opts: { projectId: string }): Promise<HarnessRun[]> => ipcRenderer.invoke(IPC.HARNESS_RUN_LIST, opts),
     setJevFeatures: (opts: { projectId: string; features: Partial<Project['jevFeatures']> }): Promise<Project | undefined> =>
       ipcRenderer.invoke(IPC.HARNESS_JEV_SET_FEATURES, opts),

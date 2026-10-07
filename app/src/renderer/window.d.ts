@@ -126,6 +126,7 @@ declare global {
         detectPreview: (opts: { projectId: string }) => Promise<Project['uiPreview'] | null>
         setPreview: (opts: { projectId: string; uiPreview: Project['uiPreview'] }) => Promise<Project | undefined>
         startRun: (opts: { projectId: string }) => Promise<HarnessRun>
+        cancelRun: (opts: { projectId: string }) => Promise<void>
         listRuns: (opts: { projectId: string }) => Promise<HarnessRun[]>
         setJevFeatures: (opts: { projectId: string; features: Partial<Project['jevFeatures']> }) => Promise<Project | undefined>
         detectTest: (opts: { projectId: string }) => Promise<Project['testCommand'] | null>

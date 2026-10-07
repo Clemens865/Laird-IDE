@@ -240,6 +240,9 @@ ipcHandle(IPC.HARNESS_PREVIEW_SET, (event, opts: { projectId: string; uiPreview:
   return store.getProject(opts.projectId)
 })
 
+/** One active, cancelable harness run per project — matches the UI's own "Run harness" button, which is disabled while a run is already in flight. */
+const activeHarnessRuns = new Map<string, AbortController>()
+
 ipcHandle(IPC.HARNESS_RUN_START, async (event, opts: { projectId: string }) => {
   assertMainFrame(event)
   const project = store.getProject(opts.projectId)
@@ -247,9 +250,20 @@ ipcHandle(IPC.HARNESS_RUN_START, async (event, opts: { projectId: string }) => {
   if (project.harnessCriteria.length === 0) throw new Error('HARNESS_RUN_START: project has no harness criteria to check')
   const anyJevFeatureEnabled = Object.values(project.jevFeatures).some(Boolean)
   const jevApiKey = anyJevFeatureEnabled ? (typesafeKeyStore.getKey() ?? undefined) : undefined
-  const run = await runReviewer(project, { jevApiKey })
-  store.appendHarnessRun(run)
-  return run
+  const controller = new AbortController()
+  activeHarnessRuns.set(project.id, controller)
+  try {
+    const run = await runReviewer(project, { jevApiKey, signal: controller.signal })
+    store.appendHarnessRun(run)
+    return run
+  } finally {
+    activeHarnessRuns.delete(project.id)
+  }
+})
+
+ipcHandle(IPC.HARNESS_RUN_CANCEL, (event, opts: { projectId: string }) => {
+  assertMainFrame(event)
+  activeHarnessRuns.get(opts.projectId)?.abort()
 })
 
 ipcHandle(IPC.HARNESS_RUN_LIST, (event, opts: { projectId: string }) => {
