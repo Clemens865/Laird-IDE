@@ -99,6 +99,7 @@ export function HarnessView({ project, onProjectUpdate }: { project: Project; on
   const [detecting, setDetecting] = useState(false)
   const [testDraft, setTestDraft] = useState(project.testCommand?.command ?? '')
   const [detectingTest, setDetectingTest] = useState(false)
+  const [costCeilingDraft, setCostCeilingDraft] = useState(project.harnessCostCeilingUsd != null ? String(project.harnessCostCeilingUsd) : '')
   const [prefilterWarning, setPrefilterWarning] = useState<{ text: string; confidence: number } | null>(null)
   const [checkingClarity, setCheckingClarity] = useState(false)
   const [runs, setRuns] = useState<HarnessRun[]>([])
@@ -143,6 +144,10 @@ export function HarnessView({ project, onProjectUpdate }: { project: Project; on
   useEffect(() => {
     setTestDraft(project.testCommand?.command ?? '')
   }, [project.id, project.testCommand])
+
+  useEffect(() => {
+    setCostCeilingDraft(project.harnessCostCeilingUsd != null ? String(project.harnessCostCeilingUsd) : '')
+  }, [project.id, project.harnessCostCeilingUsd])
 
   async function commitAddCriterion(text: string) {
     const updated = await window.laird.harness.setCriteria({ projectId: project.id, criteria: [...project.harnessCriteria, text] })
@@ -216,6 +221,14 @@ export function HarnessView({ project, onProjectUpdate }: { project: Project; on
     const command = testDraft.trim()
     if (!command) return
     const updated = await window.laird.harness.setTest({ projectId: project.id, testCommand: { command } })
+    if (updated) onProjectUpdate(updated)
+  }
+
+  async function handleSaveCostCeiling() {
+    const trimmed = costCeilingDraft.trim()
+    const costCeilingUsd = trimmed ? Number(trimmed) : undefined
+    if (trimmed && (!Number.isFinite(costCeilingUsd) || costCeilingUsd! < 0)) return
+    const updated = await window.laird.harness.setCostCeiling({ projectId: project.id, costCeilingUsd })
     if (updated) onProjectUpdate(updated)
   }
 
@@ -401,6 +414,32 @@ export function HarnessView({ project, onProjectUpdate }: { project: Project; on
       </div>
 
       <div className="skills-section">
+        <div className="label">Cost ceiling (real reviewer spend per run)</div>
+        <div className="row-card" style={{ flexDirection: 'column', alignItems: 'stretch', gap: 10 }}>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <span className="mono" style={{ fontSize: 12.5 }}>¤</span>
+            <input
+              value={costCeilingDraft}
+              onChange={(e) => setCostCeilingDraft(e.target.value)}
+              placeholder="no ceiling"
+              inputMode="decimal"
+              className="mono"
+              style={{ ...inputStyle, flex: 1 }}
+              data-testid="harness-cost-ceiling-input"
+            />
+            <div className="btn" onClick={handleSaveCostCeiling} data-testid="harness-cost-ceiling-save" style={{ cursor: 'pointer' }}>
+              Save
+            </div>
+          </div>
+          <div className="mono" data-testid="harness-cost-ceiling-status" style={{ fontSize: 10.5, color: 'var(--muted)' }}>
+            {project.harnessCostCeilingUsd != null
+              ? `A run stops starting new reviewer passes once it's spent ¤${project.harnessCostCeilingUsd.toFixed(2)} — any criterion left unchecked reports why, honestly.`
+              : 'No ceiling set — a run can spend as much as checking every criterion genuinely takes.'}
+          </div>
+        </div>
+      </div>
+
+      <div className="skills-section">
         <div className="label">Live preview</div>
         <LivePreviewPanel project={project} />
       </div>
@@ -530,9 +569,16 @@ export function HarnessView({ project, onProjectUpdate }: { project: Project; on
             <div key={run.id} className="row-card" data-testid="harness-run-row" style={{ flexDirection: 'column', alignItems: 'stretch', gap: 8 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <span className="mono" style={{ fontSize: 11, color: 'var(--muted)' }}>
-                  {new Date(run.createdAt).toLocaleString()}
+                  {new Date(run.createdAt).toLocaleString()} · ¤{run.totalCostUsd.toFixed(2)}
                 </span>
-                <Badge label={DISPOSITION_LABEL[run.disposition]} color={DISPOSITION_COLOR[run.disposition]} />
+                <div style={{ display: 'flex', gap: 6 }}>
+                  {run.costCeilingHit && (
+                    <span data-testid="harness-run-cost-ceiling-hit" title="Stopped early — the cost ceiling was reached before every criterion could be checked.">
+                      <Badge label="⚠ cost ceiling hit" color={{ fg: 'var(--state-warning)', bg: 'var(--state-warning-soft)' }} />
+                    </span>
+                  )}
+                  <Badge label={DISPOSITION_LABEL[run.disposition]} color={DISPOSITION_COLOR[run.disposition]} />
+                </div>
               </div>
               {run.perCriterionResult.map((result, i) => (
                 <div

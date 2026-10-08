@@ -4,6 +4,7 @@ import { ClaudeHeadlessTransport } from '../session/claudeHeadlessTransport'
 import { classifyCriterionCheckMethod, flagShortcutRationales } from './jev'
 import { runTestCommand, testRunToCriterionResult } from './testRunner'
 import { startDevServer, waitForPort } from './devServer'
+import { replayScript, type RecordedAssertion, type RecordedScript, type RecordedStep } from './recordedScript'
 import type { EvidenceTier, HarnessCriterionResult, HarnessDisposition, HarnessRun, Project } from '../../shared/types'
 
 /**
@@ -103,8 +104,12 @@ ${numbered}
 
 In your rationale, briefly describe what you actually did (e.g. "navigated to /signup, clicked Submit, saw a validation error") so a human can tell you genuinely checked rather than guessed.
 
+If you reach "ship" or "hold" based on genuine, direct interaction (evidenceTier "VERIFIED" or "CORROBORATED"), you may ALSO include a "recording" field on that result describing the exact real steps you took, so this exact check can be replayed later by a plain script with no AI at all:
+{"steps":[{"action":"click","locator":{"kind":"role","role":"button","name":"<the exact accessible name you used>"}}],"assertions":[{"kind":"containsText","expected":"<exact text now visible on the page that proves this>"}]}
+Only include "recording" if you're confident the steps/assertions alone, with no AI judgment, would reliably reproduce this exact result — omit it entirely otherwise, there's no penalty for leaving it out. A locator's "kind" must be exactly one of "role" (role + the element's accessible name — only for an interactive element whose name does NOT itself change as a result of your actions, like a button's label), "text" (visible static text), or "testId" (only if you saw a real data-testid attribute). A step's "action" is "click" or "fill" (fill also needs a "value"). An assertion's "kind" is "containsText" or "notContainsText", and it's about the page's overall visible text, not one specific element — the one element whose text changed is usually also the one you can no longer reliably re-find by name.
+
 Respond with ONLY a single JSON object and nothing else — no markdown code fences, no prose before or after — in exactly this shape:
-{"results":[{"criterion":"<the exact criterion text, verbatim>","disposition":"ship|hold|rework|unverifiable","evidenceTier":"VERIFIED|CORROBORATED|UNCORROBORATED|INFERENCE|STATED","rationale":"<what you actually did and saw, plain language>"}]}`
+{"results":[{"criterion":"<the exact criterion text, verbatim>","disposition":"ship|hold|rework|unverifiable","evidenceTier":"VERIFIED|CORROBORATED|UNCORROBORATED|INFERENCE|STATED","rationale":"<what you actually did and saw, plain language>","recording":{"steps":[...],"assertions":[...]}}]}`
 }
 
 /**
@@ -157,12 +162,95 @@ function parseReviewerOutput(rawText: string, criteria: string[]): HarnessCriter
   )
 }
 
+const VALID_LOCATOR_KINDS = new Set(['role', 'text', 'testId'])
+const VALID_STEP_ACTIONS = new Set(['click', 'fill'])
+const VALID_ASSERTION_KINDS = new Set(['containsText', 'notContainsText'])
+
+/**
+ * Structural-only validation — a syntactically-valid-but-semantically-wrong
+ * recording isn't dangerous on its own (a real `replayScript` attempt would
+ * just fail and fall back honestly), so this only guards against malformed
+ * shapes that would throw at replay time, not against bad locators/values.
+ */
+function parseRecordedSteps(raw: unknown): RecordedStep[] | null {
+  if (!Array.isArray(raw)) return null
+  const steps: RecordedStep[] = []
+  for (const entry of raw as Array<Record<string, unknown>>) {
+    const locator = entry.locator as Record<string, unknown> | undefined
+    if (!locator || typeof locator.kind !== 'string' || !VALID_LOCATOR_KINDS.has(locator.kind)) return null
+    if (locator.kind === 'role' && (typeof locator.role !== 'string' || typeof locator.name !== 'string')) return null
+    if (locator.kind === 'text' && typeof locator.text !== 'string') return null
+    if (locator.kind === 'testId' && typeof locator.testId !== 'string') return null
+    if (typeof entry.action !== 'string' || !VALID_STEP_ACTIONS.has(entry.action)) return null
+    if (entry.action === 'fill' && typeof entry.value !== 'string') return null
+    steps.push(entry as unknown as RecordedStep)
+  }
+  return steps
+}
+
+function parseRecordedAssertions(raw: unknown): RecordedAssertion[] | null {
+  if (!Array.isArray(raw)) return null
+  const assertions: RecordedAssertion[] = []
+  for (const entry of raw as Array<Record<string, unknown>>) {
+    if (typeof entry.kind !== 'string' || !VALID_ASSERTION_KINDS.has(entry.kind)) return null
+    if (typeof entry.expected !== 'string') return null
+    assertions.push(entry as unknown as RecordedAssertion)
+  }
+  return assertions
+}
+
+/**
+ * Same defensive JSON extraction as `parseReviewerOutput`, plus an
+ * optional, separately-validated `recording` per result — kept as its own
+ * side channel (not part of `HarnessCriterionResult`, which stays a pure,
+ * renderer-visible result) so a malformed recording never affects the
+ * real disposition/evidenceTier/rationale a human sees.
+ */
+function parseUiReviewerOutput(
+  rawText: string,
+  criteria: string[],
+): { results: HarnessCriterionResult[]; recordings: Map<string, { steps: RecordedStep[]; assertions: RecordedAssertion[] }> } {
+  const recordings = new Map<string, { steps: RecordedStep[]; assertions: RecordedAssertion[] }>()
+  const results = parseReviewerOutput(rawText, criteria)
+
+  const match = rawText.match(/\{[\s\S]*\}/)
+  if (!match) return { results, recordings }
+  let parsed: { results?: Array<Record<string, unknown>> }
+  try {
+    parsed = JSON.parse(match[0])
+  } catch {
+    return { results, recordings }
+  }
+  if (!Array.isArray(parsed.results)) return { results, recordings }
+
+  for (const entry of parsed.results) {
+    const criterion = typeof entry.criterion === 'string' ? entry.criterion : null
+    const recording = entry.recording as Record<string, unknown> | undefined
+    if (!criterion || !recording) continue
+    const steps = parseRecordedSteps(recording.steps)
+    const assertions = parseRecordedAssertions(recording.assertions)
+    if (steps && assertions) recordings.set(criterion, { steps, assertions })
+  }
+
+  return { results, recordings }
+}
+
 function canceledResults(criteria: string[]): HarnessCriterionResult[] {
   return criteria.map((criterion) => ({
     criterion,
     disposition: 'unverifiable',
     evidenceTier: 'STATED',
     rationale: 'Canceled by the user before this criterion was checked.',
+  }))
+}
+
+/** Matches `canceledResults`'s own honest-fallback shape — a budget limit is as real a reason to stop as a user cancellation, never silently worked around. */
+function costCeilingResults(criteria: string[], ceilingUsd: number): HarnessCriterionResult[] {
+  return criteria.map((criterion) => ({
+    criterion,
+    disposition: 'unverifiable',
+    evidenceTier: 'STATED',
+    rationale: `Skipped — this project's harness cost ceiling (¤${ceilingUsd.toFixed(2)}) was reached before this criterion could be checked.`,
   }))
 }
 
@@ -185,7 +273,7 @@ function worstCaseDisposition(results: HarnessCriterionResult[]): HarnessDisposi
 async function runReviewerPass(
   project: Project,
   criteria: string[],
-  opts: { spawnFn?: typeof spawn; signal?: AbortSignal },
+  opts: { spawnFn?: typeof spawn; signal?: AbortSignal; onCost?: (costUsd: number) => void },
 ): Promise<HarnessCriterionResult[]> {
   if (opts.signal?.aborted) return canceledResults(criteria)
 
@@ -196,6 +284,10 @@ async function runReviewerPass(
   let fullText = ''
   transport.onEvent((e) => {
     if (e.kind === 'text') fullText += (e.payload as { text: string }).text
+    if (e.kind === 'usage') {
+      const costUsd = (e.payload as { costUsd?: unknown }).costUsd
+      if (typeof costUsd === 'number') opts.onCost?.(costUsd)
+    }
   })
 
   const exitInfo = await new Promise<{ code: number | null; failure?: { kind: string; message: string } }>((resolve) => {
@@ -216,14 +308,16 @@ async function runReviewerPass(
     : parseReviewerOutput(fullText, criteria)
 }
 
+type UiReviewResult = { results: HarnessCriterionResult[]; recordings: Map<string, { steps: RecordedStep[]; assertions: RecordedAssertion[] }> }
+
 /** The shared transport/prompt/parse core behind both the harness's own ephemeral browser and a shared embedded-panel one. */
 async function runBrowserReviewerPass(
   project: Project,
   criteria: string[],
   url: string,
   mcpServers: Record<string, unknown>,
-  opts: { spawnFn?: typeof spawn; signal?: AbortSignal; sharedBrowser?: boolean },
-): Promise<HarnessCriterionResult[]> {
+  opts: { spawnFn?: typeof spawn; signal?: AbortSignal; sharedBrowser?: boolean; onCost?: (costUsd: number) => void },
+): Promise<UiReviewResult> {
   const transport = new ClaudeHeadlessTransport({
     spawnFn: opts.spawnFn,
     allowedToolsOverride: UI_REVIEWER_ALLOWED_TOOLS,
@@ -235,6 +329,10 @@ async function runBrowserReviewerPass(
   let fullText = ''
   transport.onEvent((e) => {
     if (e.kind === 'text') fullText += (e.payload as { text: string }).text
+    if (e.kind === 'usage') {
+      const costUsd = (e.payload as { costUsd?: unknown }).costUsd
+      if (typeof costUsd === 'number') opts.onCost?.(costUsd)
+    }
   })
 
   const exitInfo = await new Promise<{ code: number | null; failure?: { kind: string; message: string } }>((resolve) => {
@@ -247,16 +345,88 @@ async function runBrowserReviewerPass(
   })
   opts.signal?.removeEventListener('abort', onAbort)
 
-  if (opts.signal?.aborted) return canceledResults(criteria)
+  if (opts.signal?.aborted) return { results: canceledResults(criteria), recordings: new Map() }
 
-  return exitInfo.failure
-    ? criteria.map((criterion) => ({
+  if (exitInfo.failure) {
+    return {
+      results: criteria.map((criterion) => ({
         criterion,
         disposition: 'unverifiable' as const,
         evidenceTier: 'STATED' as const,
         rationale: `The UI reviewer run failed before reporting a result: ${exitInfo.failure!.message}`,
-      }))
-    : parseReviewerOutput(fullText, criteria)
+      })),
+      recordings: new Map(),
+    }
+  }
+
+  return parseUiReviewerOutput(fullText, criteria)
+}
+
+interface UiCriteriaOpts {
+  spawnFn?: typeof spawn
+  signal?: AbortSignal
+  /** Reports each real reviewer call's `total_cost_usd` — see `runReviewer`'s own cost-ceiling accumulator. Never fires for a free replayed script. */
+  onCost?: (costUsd: number) => void
+  /** Record-once, replay-deterministic (observability-trust-and-harness.md's own research): a saved script from a past successful check, keyed by this exact criterion — see `recordedScript.ts`. All three injected by `index.ts`, kept out of this module to stay store-free and unit-testable. */
+  getRecordedScript?: (criterion: string) => RecordedScript | undefined
+  saveRecordedScript?: (criterion: string, script: RecordedScript) => void
+  clearRecordedScript?: (criterion: string) => void
+  /** Injectable for tests — never launches a real browser in the unit suite. */
+  replayScriptFn?: typeof replayScript
+}
+
+/**
+ * Replay-first: any criterion with an already-recorded, still-working
+ * script is checked for free with no LLM at all, by actually replaying
+ * the real steps against the real current page. Only criteria lacking a
+ * script — or whose script just broke, a genuine sign the UI changed
+ * shape — go to the real browser-driven reviewer; a fresh, confident
+ * result that includes a `recording` is saved for next time.
+ */
+async function checkUiCriteriaAgainstUrl(
+  project: Project,
+  criteria: string[],
+  url: string,
+  mcpServers: Record<string, unknown>,
+  opts: UiCriteriaOpts & { sharedBrowser?: boolean },
+): Promise<HarnessCriterionResult[]> {
+  const replay = opts.replayScriptFn ?? replayScript
+  const resultByCriterion = new Map<string, HarnessCriterionResult>()
+  const needsLlm: string[] = []
+
+  for (const criterion of criteria) {
+    const script = opts.getRecordedScript?.(criterion)
+    if (!script) {
+      needsLlm.push(criterion)
+      continue
+    }
+    const replayed = await replay({ ...script, url })
+    if (replayed.success) {
+      resultByCriterion.set(criterion, {
+        criterion,
+        disposition: 'ship',
+        evidenceTier: 'VERIFIED',
+        rationale: 'Replayed a previously-recorded real interaction against the current page — it still matches, no AI judgment needed this time.',
+      })
+    } else {
+      console.error(`[harness] recorded script for "${criterion}" no longer replays (${replayed.error}) — falling back to a fresh reviewer pass`)
+      opts.clearRecordedScript?.(criterion)
+      needsLlm.push(criterion)
+    }
+  }
+
+  if (needsLlm.length === 0) return criteria.map((c) => resultByCriterion.get(c)!)
+
+  const { results: llmResults, recordings } = await runBrowserReviewerPass(project, needsLlm, url, mcpServers, opts)
+  for (const r of llmResults) {
+    resultByCriterion.set(r.criterion, r)
+    const recording = recordings.get(r.criterion)
+    if (recording && opts.saveRecordedScript) {
+      opts.saveRecordedScript(r.criterion, { url, steps: recording.steps, assertions: recording.assertions, recordedAt: new Date().toISOString() })
+    }
+  }
+
+  return criteria.map((c) => resultByCriterion.get(c)!)
 }
 
 /**
@@ -288,11 +458,9 @@ async function runBrowserReviewerPass(
 async function runUiReviewerPass(
   project: Project,
   criteria: string[],
-  opts: {
-    spawnFn?: typeof spawn
+  opts: UiCriteriaOpts & {
     devServerSpawnFn?: typeof spawn
     waitForPortFn?: typeof waitForPort
-    signal?: AbortSignal
     sharedPreview?: { url: string; cdpEndpoint: string; onLockChange?: (locked: boolean) => void }
   },
 ): Promise<HarnessCriterionResult[]> {
@@ -303,7 +471,7 @@ async function runUiReviewerPass(
     console.error(`[harness] UI reviewer: sharing the embedded live-preview panel via CDP (${cdpEndpoint})`)
     onLockChange?.(true)
     try {
-      return await runBrowserReviewerPass(project, criteria, url, playwrightMcpServers(cdpEndpoint), { ...opts, sharedBrowser: true })
+      return await checkUiCriteriaAgainstUrl(project, criteria, url, playwrightMcpServers(cdpEndpoint), { ...opts, sharedBrowser: true })
     } finally {
       onLockChange?.(false)
     }
@@ -343,7 +511,7 @@ async function runUiReviewerPass(
     }
 
     const url = `http://localhost:${uiPreview.port}`
-    return await runBrowserReviewerPass(project, criteria, url, playwrightMcpServers(), opts)
+    return await checkUiCriteriaAgainstUrl(project, criteria, url, playwrightMcpServers(), opts)
   } finally {
     devServer.stop()
   }
@@ -410,6 +578,11 @@ export async function runReviewer(
     signal?: AbortSignal
     /** Set by `index.ts` when the embedded live-preview panel already has this exact project's dev server up — see `runUiReviewerPass`'s own doc comment. */
     sharedPreview?: { url: string; cdpEndpoint: string; onLockChange?: (locked: boolean) => void }
+    /** Record-once, replay-deterministic for UI criteria — wired by `index.ts` to `MemoryStore`'s `getRecordedScript`/`setRecordedScript`/`clearRecordedScript`, scoped to this exact project. See `checkUiCriteriaAgainstUrl`. */
+    getRecordedScript?: (criterion: string) => RecordedScript | undefined
+    saveRecordedScript?: (criterion: string, script: RecordedScript) => void
+    clearRecordedScript?: (criterion: string) => void
+    replayScriptFn?: typeof replayScript
   } = {},
 ): Promise<HarnessRun> {
   const allCriteria = project.harnessCriteria
@@ -423,8 +596,27 @@ export async function runReviewer(
       disposition: 'unverifiable',
       perCriterionResult: canceledResults(allCriteria),
       createdAt: new Date().toISOString(),
+      totalCostUsd: 0,
     }
   }
+
+  // Cost ceiling (observability-trust-and-harness.md's "a cost ceiling per
+  // run, matching `claude plugin eval`'s own `--max-cost-usd`"): checked at
+  // phase boundaries, not mid-call — real cost is only known once a
+  // `claude -p` reviewer call actually finishes, so this bounds how many
+  // more reviewer phases get to start, not a single phase already running.
+  // Once reached, every remaining live-reviewed phase (and any
+  // adaptiveMultiRun re-check) is skipped outright, even one that might
+  // have resolved for free via a replayed script — simpler and more
+  // conservative than trying to prove in advance which phase would've
+  // been free. Never counts a free test-command run or a free replay.
+  const ceilingUsd = project.harnessCostCeilingUsd
+  let totalCostUsd = 0
+  let costCeilingHit = false
+  const onCost = (costUsd: number) => {
+    totalCostUsd += costUsd
+  }
+  const ceilingReached = () => ceilingUsd != null && totalCostUsd >= ceilingUsd
 
   const checkMethods =
     useJev && project.jevFeatures.criterionRouting
@@ -462,7 +654,15 @@ export async function runReviewer(
   }
 
   if (reviewerBoundCriteria.length > 0) {
-    const reviewed = opts.signal?.aborted ? canceledResults(reviewerBoundCriteria) : await runReviewerPass(project, reviewerBoundCriteria, opts)
+    let reviewed: HarnessCriterionResult[]
+    if (opts.signal?.aborted) {
+      reviewed = canceledResults(reviewerBoundCriteria)
+    } else if (ceilingReached()) {
+      costCeilingHit = true
+      reviewed = costCeilingResults(reviewerBoundCriteria, ceilingUsd!)
+    } else {
+      reviewed = await runReviewerPass(project, reviewerBoundCriteria, { ...opts, onCost })
+    }
     for (const r of reviewed) resultByCriterion.set(r.criterion, r)
   }
 
@@ -470,7 +670,15 @@ export async function runReviewer(
     // One dev-server start/stop cycle and one browser-reviewer pass covers
     // every UI-shaped criterion together — same "run once, reuse" economy
     // as the deterministic-test bucket.
-    const uiReviewed = opts.signal?.aborted ? canceledResults(uiShapedCriteria) : await runUiReviewerPass(project, uiShapedCriteria, opts)
+    let uiReviewed: HarnessCriterionResult[]
+    if (opts.signal?.aborted) {
+      uiReviewed = canceledResults(uiShapedCriteria)
+    } else if (ceilingReached()) {
+      costCeilingHit = true
+      uiReviewed = costCeilingResults(uiShapedCriteria, ceilingUsd!)
+    } else {
+      uiReviewed = await runUiReviewerPass(project, uiShapedCriteria, { ...opts, onCost })
+    }
     for (const r of uiReviewed) resultByCriterion.set(r.criterion, r)
   }
 
@@ -495,16 +703,20 @@ export async function runReviewer(
     }
 
     const weakCodeCriteria = reviewerBoundCriteria.filter(isWeak)
-    if (weakCodeCriteria.length > 0) {
-      const secondPass = await runReviewerPass(project, weakCodeCriteria, opts)
+    if (weakCodeCriteria.length > 0 && ceilingReached()) {
+      costCeilingHit = true
+    } else if (weakCodeCriteria.length > 0) {
+      const secondPass = await runReviewerPass(project, weakCodeCriteria, { ...opts, onCost })
       for (const second of secondPass) {
         resultByCriterion.set(second.criterion, mergeMultiRunResult(resultByCriterion.get(second.criterion)!, second))
       }
     }
 
     const weakUiCriteria = uiShapedCriteria.filter(isWeak)
-    if (weakUiCriteria.length > 0) {
-      const secondPass = await runUiReviewerPass(project, weakUiCriteria, opts)
+    if (weakUiCriteria.length > 0 && ceilingReached()) {
+      costCeilingHit = true
+    } else if (weakUiCriteria.length > 0) {
+      const secondPass = await runUiReviewerPass(project, weakUiCriteria, { ...opts, onCost })
       for (const second of secondPass) {
         resultByCriterion.set(second.criterion, mergeMultiRunResult(resultByCriterion.get(second.criterion)!, second))
       }
@@ -520,5 +732,7 @@ export async function runReviewer(
     disposition: worstCaseDisposition(perCriterionResult),
     perCriterionResult,
     createdAt: new Date().toISOString(),
+    totalCostUsd,
+    costCeilingHit: costCeilingHit || undefined,
   }
 }

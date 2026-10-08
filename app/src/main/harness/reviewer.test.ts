@@ -48,6 +48,11 @@ function assistantTextLine(text: string): string {
   return JSON.stringify({ type: 'assistant', message: { content: [{ type: 'text', text }] } })
 }
 
+/** The real NDJSON shape `mapEvents.ts` reads a reviewer's own `total_cost_usd` from — see `runReviewer`'s cost-ceiling accumulator. */
+function resultLine(costUsd: number): string {
+  return JSON.stringify({ type: 'result', total_cost_usd: costUsd, duration_ms: 100, is_error: false, result: 'ok' })
+}
+
 describe('runReviewer', () => {
   it('parses a real-shaped reviewer response into per-criterion results and a worst-case overall disposition', async () => {
     const replyJson = JSON.stringify({
@@ -425,6 +430,175 @@ describe('runReviewer — chunk 3: UI-shaped criteria get a real browser-driven 
   })
 })
 
+describe('runReviewer — record-once, replay-deterministic for UI criteria', () => {
+  function spawnNoop(): ReturnType<typeof spawn> {
+    return spawn(process.execPath, ['-e', ''])
+  }
+
+  function uiProject(criterion: string): Project {
+    return makeProject({
+      harnessCriteria: [criterion],
+      uiPreview: { command: 'npm run dev', port: 5173 },
+      jevFeatures: { criterionRouting: true, shortcutDetection: false, criteriaPrefilter: false, adaptiveMultiRun: false },
+    })
+  }
+
+  it('replays an already-recorded script with no LLM call at all when it still works', async () => {
+    const criterion = 'Clicking login navigates to the dashboard'
+    const reviewerSpawnFn = vi.fn(() => spawnNoop() as never)
+    const replayScriptFn = vi.fn().mockResolvedValue({ success: true })
+    const recorded = { url: 'http://localhost:5173', steps: [], assertions: [], recordedAt: '2026-01-01T00:00:00.000Z' }
+
+    const run = await runReviewer(uiProject(criterion), {
+      fetchFn: fakeChoiceFetch({ c0: 'ui_interaction' }),
+      jevApiKey: 'sk-test',
+      devServerSpawnFn: vi.fn(() => spawnNoop() as never),
+      waitForPortFn: vi.fn().mockResolvedValue(true) as never,
+      spawnFn: reviewerSpawnFn,
+      replayScriptFn: replayScriptFn as never,
+      getRecordedScript: () => recorded,
+    })
+
+    expect(replayScriptFn).toHaveBeenCalledWith(expect.objectContaining({ url: 'http://localhost:5173' }))
+    expect(reviewerSpawnFn).not.toHaveBeenCalled()
+    expect(run.perCriterionResult[0]).toMatchObject({ disposition: 'ship', evidenceTier: 'VERIFIED' })
+    expect(run.perCriterionResult[0].rationale).toContain('Replayed')
+  })
+
+  it('clears a broken recorded script and falls back to a fresh reviewer pass', async () => {
+    const criterion = 'Clicking login navigates to the dashboard'
+    const replyJson = JSON.stringify({
+      results: [{ criterion, disposition: 'ship', evidenceTier: 'VERIFIED', rationale: 'Navigated to /login, clicked Login, saw the dashboard.' }],
+    })
+    const reviewerSpawnFn = vi.fn(() => spawnFakeReviewer([assistantTextLine(replyJson)]) as never)
+    const replayScriptFn = vi.fn().mockResolvedValue({ success: false, error: 'locator not found' })
+    const clearRecordedScript = vi.fn()
+    const recorded = { url: 'http://localhost:5173', steps: [], assertions: [], recordedAt: '2026-01-01T00:00:00.000Z' }
+
+    const run = await runReviewer(uiProject(criterion), {
+      fetchFn: fakeChoiceFetch({ c0: 'ui_interaction' }),
+      jevApiKey: 'sk-test',
+      devServerSpawnFn: vi.fn(() => spawnNoop() as never),
+      waitForPortFn: vi.fn().mockResolvedValue(true) as never,
+      spawnFn: reviewerSpawnFn,
+      replayScriptFn: replayScriptFn as never,
+      getRecordedScript: () => recorded,
+      clearRecordedScript,
+    })
+
+    expect(clearRecordedScript).toHaveBeenCalledWith(criterion)
+    expect(reviewerSpawnFn).toHaveBeenCalled()
+    expect(run.perCriterionResult[0]).toMatchObject({ disposition: 'ship', evidenceTier: 'VERIFIED' })
+    expect(run.perCriterionResult[0].rationale).toContain('Navigated to /login')
+  })
+
+  it('saves a fresh reviewer recording for next time when no script existed yet', async () => {
+    const criterion = 'Clicking login navigates to the dashboard'
+    const replyJson = JSON.stringify({
+      results: [
+        {
+          criterion,
+          disposition: 'ship',
+          evidenceTier: 'VERIFIED',
+          rationale: 'Navigated to /login, clicked Login, saw the dashboard.',
+          recording: {
+            steps: [{ action: 'click', locator: { kind: 'role', role: 'button', name: 'Login' } }],
+            assertions: [{ kind: 'containsText', expected: 'Dashboard' }],
+          },
+        },
+      ],
+    })
+    const saveRecordedScript = vi.fn()
+
+    const run = await runReviewer(uiProject(criterion), {
+      fetchFn: fakeChoiceFetch({ c0: 'ui_interaction' }),
+      jevApiKey: 'sk-test',
+      devServerSpawnFn: vi.fn(() => spawnNoop() as never),
+      waitForPortFn: vi.fn().mockResolvedValue(true) as never,
+      spawnFn: () => spawnFakeReviewer([assistantTextLine(replyJson)]) as never,
+      getRecordedScript: () => undefined,
+      saveRecordedScript,
+    })
+
+    expect(saveRecordedScript).toHaveBeenCalledWith(
+      criterion,
+      expect.objectContaining({
+        url: 'http://localhost:5173',
+        steps: [{ action: 'click', locator: { kind: 'role', role: 'button', name: 'Login' } }],
+        assertions: [{ kind: 'containsText', expected: 'Dashboard' }],
+      }),
+    )
+    expect(run.perCriterionResult[0]).toMatchObject({ disposition: 'ship', evidenceTier: 'VERIFIED' })
+  })
+
+  it('never saves a recording when the reviewer did not provide one', async () => {
+    const criterion = 'Looks right on mobile'
+    const replyJson = JSON.stringify({
+      results: [{ criterion, disposition: 'hold', evidenceTier: 'CORROBORATED', rationale: 'Mostly fine, one spacing issue.' }],
+    })
+    const saveRecordedScript = vi.fn()
+
+    await runReviewer(uiProject(criterion), {
+      fetchFn: fakeChoiceFetch({ c0: 'ui_interaction' }),
+      jevApiKey: 'sk-test',
+      devServerSpawnFn: vi.fn(() => spawnNoop() as never),
+      waitForPortFn: vi.fn().mockResolvedValue(true) as never,
+      spawnFn: () => spawnFakeReviewer([assistantTextLine(replyJson)]) as never,
+      getRecordedScript: () => undefined,
+      saveRecordedScript,
+    })
+
+    expect(saveRecordedScript).not.toHaveBeenCalled()
+  })
+})
+
+describe('runReviewer — cost ceiling per run', () => {
+  it('accumulates real reviewer spend onto the run even with no ceiling set', async () => {
+    const replyJson = JSON.stringify({ results: [{ criterion: 'A', disposition: 'ship', evidenceTier: 'VERIFIED', rationale: 'ok' }] })
+    const project = makeProject({ harnessCriteria: ['A'] })
+
+    const run = await runReviewer(project, {
+      spawnFn: () => spawnFakeReviewer([assistantTextLine(replyJson), resultLine(0.03)]) as never,
+    })
+
+    expect(run.totalCostUsd).toBeCloseTo(0.03)
+    expect(run.costCeilingHit).toBeUndefined()
+  })
+
+  it('stops starting new reviewer phases once the ceiling is reached, reporting an honest skip for the rest rather than guessing', async () => {
+    const codeReplyJson = JSON.stringify({ results: [{ criterion: 'A should work', disposition: 'ship', evidenceTier: 'VERIFIED', rationale: 'ok' }] })
+    const spawnFn = vi.fn(() => spawnFakeReviewer([assistantTextLine(codeReplyJson), resultLine(0.05)]) as never)
+    const devServerSpawnFn = vi.fn(() => spawn(process.execPath, ['-e', '']) as never)
+    const project = makeProject({
+      harnessCriteria: ['A should work', 'Looks right on mobile'],
+      uiPreview: { command: 'npm run dev', port: 5173 },
+      harnessCostCeilingUsd: 0.02,
+      jevFeatures: { criterionRouting: true, shortcutDetection: false, criteriaPrefilter: false, adaptiveMultiRun: false },
+    })
+
+    const run = await runReviewer(project, {
+      fetchFn: fakeChoiceFetch({ c0: 'code_inspection', c1: 'ui_interaction' }),
+      jevApiKey: 'sk-test',
+      spawnFn,
+      devServerSpawnFn,
+      waitForPortFn: vi.fn().mockResolvedValue(true) as never,
+    })
+
+    // Only the code-reviewer pass ran (it alone already pushed real spend
+    // past the ¤0.02 ceiling); the UI-shaped pass never even started its
+    // dev server, let alone spawned a second reviewer.
+    expect(spawnFn).toHaveBeenCalledTimes(1)
+    expect(devServerSpawnFn).not.toHaveBeenCalled()
+    expect(run.totalCostUsd).toBeCloseTo(0.05)
+    expect(run.costCeilingHit).toBe(true)
+
+    expect(run.perCriterionResult.find((r) => r.criterion === 'A should work')).toMatchObject({ disposition: 'ship', evidenceTier: 'VERIFIED' })
+    const skipped = run.perCriterionResult.find((r) => r.criterion === 'Looks right on mobile')
+    expect(skipped).toMatchObject({ disposition: 'unverifiable', evidenceTier: 'STATED' })
+    expect(skipped!.rationale).toContain('cost ceiling')
+  })
+})
+
 describe('runReviewer — cancellation via AbortSignal', () => {
   function spawnHungProcess(): ReturnType<typeof spawn> {
     return spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'])
@@ -513,12 +687,13 @@ describe('runReviewer — chunk 3 piece 3: sharing the embedded live-preview pan
     let capturedPrompt = ''
     const reviewerSpawnFn = (() => {
       const child = spawnFakeReviewer([assistantTextLine(replyJson)])
-      const originalWrite = child.stdin!.write.bind(child.stdin)
-      child.stdin!.write = ((chunk: unknown, ...rest: unknown[]) => {
+      const stdin = child.stdin!
+      const originalWrite = stdin.write.bind(stdin)
+      stdin.write = ((chunk: unknown, ...rest: unknown[]) => {
         capturedPrompt += String(chunk)
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         return (originalWrite as any)(chunk, ...rest)
-      }) as typeof child.stdin.write
+      }) as typeof stdin.write
       return child
     }) as unknown as typeof spawn
     const fetchFn = fakeChoiceFetch({ c0: 'ui_interaction' })

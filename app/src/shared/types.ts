@@ -63,6 +63,14 @@ export interface Project {
    * `undefined` means "not configured yet."
    */
   testCommand?: { command: string }
+  /**
+   * The real-dollar cap on a single harness run's reviewer spend
+   * (observability-trust-and-harness.md's "a cost ceiling per run,
+   * matching `claude plugin eval`'s own `--max-cost-usd`") — `undefined`
+   * means no ceiling. Only counts real `claude -p` reviewer calls; a free
+   * test-command run or a free replayed script never counts against it.
+   */
+  harnessCostCeilingUsd?: number
   /** Per-feature TypeSafe/Jev opt-in for harness runs — see `JevFeatures`. */
   jevFeatures: JevFeatures
 }
@@ -256,6 +264,10 @@ export interface HarnessRun {
   perCriterionResult: HarnessCriterionResult[]
   linkedTurnId?: string
   createdAt: string
+  /** Real accumulated reviewer spend for this run — sum of every `claude -p` reviewer call's `total_cost_usd`, excluding free test-command runs and free replayed scripts. */
+  totalCostUsd: number
+  /** True when `Project.harnessCostCeilingUsd` was reached before every criterion could be checked — the unreached ones report an honest `unverifiable`/STATED result explaining why, not a guess. */
+  costCeilingHit?: boolean
 }
 
 export interface PluginInstall {

@@ -1,6 +1,7 @@
 import { mkdirSync, readFileSync, writeFileSync, existsSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import type { ActivityLogEntry, HarnessRun, Project, Session, Turn, UsageEvent } from '../../shared/types'
+import type { RecordedScript } from '../harness/recordedScript'
 
 interface StoreSnapshot {
   projects: Project[]
@@ -9,6 +10,12 @@ interface StoreSnapshot {
   activityLog: ActivityLogEntry[]
   usageEvents: UsageEvent[]
   harnessRuns: HarnessRun[]
+  recordedScripts: Array<[string, RecordedScript]>
+}
+
+/** `Project.id` + the exact criterion text — a script only ever applies to the one criterion it was recorded for. */
+function recordedScriptKey(projectId: string, criterion: string): string {
+  return `${projectId}::${criterion}`
 }
 
 const DEBOUNCE_MS = 1_000
@@ -28,6 +35,7 @@ export class MemoryStore {
   private activityLog: ActivityLogEntry[] = []
   private usageEvents: UsageEvent[] = []
   private harnessRuns: HarnessRun[] = []
+  private recordedScripts = new Map<string, RecordedScript>()
   private snapshotTimer: ReturnType<typeof setTimeout> | null = null
 
   constructor(private readonly snapshotPath: string | null) {
@@ -40,6 +48,7 @@ export class MemoryStore {
         this.activityLog = raw.activityLog ?? []
         this.usageEvents = raw.usageEvents ?? []
         this.harnessRuns = raw.harnessRuns ?? []
+        for (const [key, script] of raw.recordedScripts ?? []) this.recordedScripts.set(key, script)
       } catch (err) {
         console.error('[store] failed to load snapshot, starting empty', err)
       }
@@ -110,6 +119,13 @@ export class MemoryStore {
     this.upsertProject({ ...project, testCommand })
   }
 
+  /** The real-dollar cap on a single harness run's reviewer spend — see `Project.harnessCostCeilingUsd`. `undefined` clears it. */
+  setCostCeiling(projectId: string, costCeilingUsd: number | undefined): void {
+    const project = this.projects.get(projectId)
+    if (!project) return
+    this.upsertProject({ ...project, harnessCostCeilingUsd: costCeilingUsd })
+  }
+
   appendHarnessRun(run: HarnessRun): void {
     this.harnessRuns.push(run)
     this.scheduleSnapshot()
@@ -117,6 +133,22 @@ export class MemoryStore {
 
   getHarnessRuns(projectId: string): HarnessRun[] {
     return this.harnessRuns.filter((r) => r.projectId === projectId)
+  }
+
+  /** Saves a successful browser-driven check's real steps for free, deterministic replay next time — see `recordedScript.ts`. */
+  setRecordedScript(projectId: string, criterion: string, script: RecordedScript): void {
+    this.recordedScripts.set(recordedScriptKey(projectId, criterion), script)
+    this.scheduleSnapshot()
+  }
+
+  getRecordedScript(projectId: string, criterion: string): RecordedScript | undefined {
+    return this.recordedScripts.get(recordedScriptKey(projectId, criterion))
+  }
+
+  /** Called when a saved script no longer replays — the next run falls back to a fresh LLM-driven check, which may record a new one. */
+  clearRecordedScript(projectId: string, criterion: string): void {
+    this.recordedScripts.delete(recordedScriptKey(projectId, criterion))
+    this.scheduleSnapshot()
   }
 
   removeProject(id: string): void {
@@ -183,6 +215,7 @@ export class MemoryStore {
       activityLog: this.activityLog,
       usageEvents: this.usageEvents,
       harnessRuns: this.harnessRuns,
+      recordedScripts: [...this.recordedScripts.entries()],
     }
     try {
       mkdirSync(dirname(this.snapshotPath), { recursive: true })
