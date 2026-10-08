@@ -1,7 +1,18 @@
 import { BoardFlip } from './BoardFlip'
+import { NavDock, type NavDockItem } from './NavDock'
 import { ThemeToggle } from './ThemeToggle'
+import { FilesIcon, GridIcon, HarnessIcon, HistoryIcon, MarketplaceIcon, SkillsIcon } from './navIcons'
 
 export type AppView = 'tabs' | 'grid' | 'skills' | 'history' | 'marketplace' | 'harness' | 'files'
+
+const NAV_ITEMS: NavDockItem<AppView>[] = [
+  { id: 'history', label: 'History', icon: <HistoryIcon />, testId: 'toggle-history-button' },
+  { id: 'skills', label: 'Skills & agents', icon: <SkillsIcon />, testId: 'toggle-skills-button' },
+  { id: 'marketplace', label: 'Marketplace', icon: <MarketplaceIcon />, testId: 'toggle-marketplace-button' },
+  { id: 'harness', label: 'Harness', icon: <HarnessIcon />, testId: 'toggle-harness-button' },
+  { id: 'files', label: 'Files', icon: <FilesIcon />, testId: 'toggle-files-button' },
+  { id: 'grid', label: 'Grid view', icon: <GridIcon />, testId: 'toggle-view-button' },
+]
 
 export function Topbar({ view, onSetView }: { view: AppView; onSetView: (view: AppView) => void }) {
   return (
@@ -10,55 +21,12 @@ export function Topbar({ view, onSetView }: { view: AppView; onSetView: (view: A
         <BoardFlip />
         Laird<span className="sub">&nbsp;· workspace</span>
       </div>
+      <NavDock
+        items={NAV_ITEMS}
+        active={view === 'tabs' ? null : view}
+        onSelect={(id) => onSetView(view === id ? 'tabs' : id)}
+      />
       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-        <div
-          className="btn"
-          onClick={() => onSetView(view === 'history' ? 'tabs' : 'history')}
-          data-testid="toggle-history-button"
-          style={{ cursor: 'pointer' }}
-        >
-          History
-        </div>
-        <div
-          className="btn"
-          onClick={() => onSetView(view === 'skills' ? 'tabs' : 'skills')}
-          data-testid="toggle-skills-button"
-          style={{ cursor: 'pointer' }}
-        >
-          Skills &amp; agents
-        </div>
-        <div
-          className="btn"
-          onClick={() => onSetView(view === 'marketplace' ? 'tabs' : 'marketplace')}
-          data-testid="toggle-marketplace-button"
-          style={{ cursor: 'pointer' }}
-        >
-          Marketplace
-        </div>
-        <div
-          className="btn"
-          onClick={() => onSetView(view === 'harness' ? 'tabs' : 'harness')}
-          data-testid="toggle-harness-button"
-          style={{ cursor: 'pointer' }}
-        >
-          Harness
-        </div>
-        <div
-          className="btn"
-          onClick={() => onSetView(view === 'files' ? 'tabs' : 'files')}
-          data-testid="toggle-files-button"
-          style={{ cursor: 'pointer' }}
-        >
-          Files
-        </div>
-        <div
-          className="btn"
-          onClick={() => onSetView(view === 'grid' ? 'tabs' : 'grid')}
-          data-testid="toggle-view-button"
-          style={{ cursor: 'pointer' }}
-        >
-          {view === 'grid' ? 'Tab view' : 'Grid view'}
-        </div>
         <ThemeToggle />
         <div className="avatar" style={{ background: 'var(--amber-soft)' }}>
           CH

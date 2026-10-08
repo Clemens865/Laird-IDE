@@ -33,6 +33,20 @@ svg.defs { position: absolute; width: 0; height: 0; }
 .btn { display: flex; align-items: center; gap: 7px; padding: 9px 15px; border-radius: 999px; font-size: 13px; font-weight: 600; cursor: pointer; color: var(--ink-2); }
 .avatar { width: 32px; height: 32px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700; color: var(--ink-2); }
 
+/* NavDock — the floating glass-pill nav (see NavDock.tsx's own doc comment
+   for where this design actually comes from and why only the shape, not
+   the WebGL glass, was worth taking). `.glass` (already defined above)
+   supplies the frosted background/border/shadow/SVG-distortion layer;
+   these rules are only the dock-specific layout + the sliding highlight. */
+.nav-dock { display: flex; align-items: center; gap: 2px; padding: 6px; border-radius: 999px; }
+.nav-dock-glow { position: absolute; top: 6px; bottom: 6px; border-radius: 999px; background: rgba(var(--surface-rgb),0.9); box-shadow: 0 1px 2px rgba(var(--ink-rgb),0.08); transition: left 0.25s cubic-bezier(.3,.15,.15,1), width 0.25s cubic-bezier(.3,.15,.15,1), opacity 0.2s; pointer-events: none; z-index: 0; }
+.nav-dock-item { position: relative; z-index: 1; display: flex; align-items: center; gap: 6px; padding: 8px 14px; border-radius: 999px; font-size: 12.5px; font-weight: 600; color: var(--ink-2); cursor: pointer; white-space: nowrap; }
+.nav-dock-item svg { flex-shrink: 0; }
+.nav-dock-item.on { color: var(--ink); }
+@media (prefers-reduced-motion: reduce) {
+  .nav-dock-glow { transition-duration: 0.001s; }
+}
+
 .tabs { display: flex; align-items: center; gap: 10px; padding: 16px 26px; position: relative; z-index: 2; }
 .tab { display: flex; align-items: center; gap: 10px; padding: 9px 10px 9px 14px; border-radius: 999px; font-weight: 600; font-size: 13px; cursor: pointer; border: 1px solid transparent; }
 .tab.active { border-color: rgba(var(--surface-rgb),0.7); box-shadow: 0 6px 18px -8px var(--tc), inset 0 1px 0 rgba(var(--surface-rgb),0.8); background: rgba(var(--surface-rgb),0.3); }
