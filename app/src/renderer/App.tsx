@@ -195,6 +195,14 @@ export function App() {
     [applyProjectUpdate],
   )
 
+  const handleSetJevGuard = useCallback(
+    async (projectId: string, enabled: boolean) => {
+      const updated = await window.laird.project.setJevGuard({ projectId, enabled })
+      applyProjectUpdate(updated)
+    },
+    [applyProjectUpdate],
+  )
+
   const selected = projects.find((p) => p.id === selectedProjectId) ?? null
   const selectedState = selectedProjectId ? sessionState[selectedProjectId] ?? emptyState() : emptyState()
   const filesChanged = selectedState.turns.reduce(
@@ -327,6 +335,8 @@ export function App() {
                   tier={selected.permissionTier}
                   approvalMode={selected.approvalMode}
                   onChange={(change) => handleSetPermissions(selected.id, change)}
+                  jevGuardEnabled={selected.jevGuardEnabled}
+                  onToggleJevGuard={(enabled) => handleSetJevGuard(selected.id, enabled)}
                 />
                 <Composer
                   onSend={(prompt) => handleSend(selected.id, prompt)}

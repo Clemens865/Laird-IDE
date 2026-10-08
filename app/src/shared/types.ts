@@ -71,6 +71,17 @@ export interface Project {
    * test-command run or a free replayed script never counts against it.
    */
   harnessCostCeilingUsd?: number
+  /**
+   * JevGuard (Workstream J) — unlike `JevFeatures` below (harness-run-only
+   * enhancements), this changes real coding-session behavior: when `true`
+   * (and a TypeSafe key is configured), every session for this project
+   * re-enables Claude Code hooks for exactly one Laird-authored `PreToolUse`
+   * guard that classifies each tool call in real time (secret exposure,
+   * destructive action, exfiltration) via Jev, strengthening — never
+   * replacing — `permissions.ts`'s own unconditional `FULL_DISALLOWED`
+   * baseline. Defaults to `false`: opt-in, same as every other Jev feature.
+   */
+  jevGuardEnabled: boolean
   /** Per-feature TypeSafe/Jev opt-in for harness runs — see `JevFeatures`. */
   jevFeatures: JevFeatures
 }
@@ -278,7 +289,7 @@ export interface PluginInstall {
   enabled: boolean
 }
 
-export type ActivityLogKind = 'tool-call' | 'file-change' | 'decision' | 'permission-prompt' | 'kill-switch'
+export type ActivityLogKind = 'tool-call' | 'file-change' | 'decision' | 'permission-prompt' | 'kill-switch' | 'jev-guard-blocked'
 
 export interface ActivityLogEntry {
   id: string

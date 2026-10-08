@@ -126,6 +126,13 @@ export class MemoryStore {
     this.upsertProject({ ...project, harnessCostCeilingUsd: costCeilingUsd })
   }
 
+  /** JevGuard's per-project opt-in (Workstream J) — see `Project.jevGuardEnabled`. */
+  setJevGuardEnabled(projectId: string, enabled: boolean): void {
+    const project = this.projects.get(projectId)
+    if (!project) return
+    this.upsertProject({ ...project, jevGuardEnabled: enabled })
+  }
+
   appendHarnessRun(run: HarnessRun): void {
     this.harnessRuns.push(run)
     this.scheduleSnapshot()

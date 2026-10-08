@@ -35,6 +35,8 @@ contextBridge.exposeInMainWorld('laird', {
       permissionTier?: Project['permissionTier']
       approvalMode?: Project['approvalMode']
     }): Promise<Project | undefined> => ipcRenderer.invoke(IPC.PROJECT_SET_PERMISSIONS, opts),
+    setJevGuard: (opts: { projectId: string; enabled: boolean }): Promise<Project | undefined> =>
+      ipcRenderer.invoke(IPC.PROJECT_SET_JEV_GUARD, opts),
   },
   skills: {
     list: (opts: { projectId: string }): Promise<DiscoveredSkillsAndAgents & { enabledGlobalSkillIds: string[] }> =>

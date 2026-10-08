@@ -37,14 +37,23 @@ export interface SessionManagerDeps {
   store: MemoryStore
   onEvent: (sessionId: string, event: SessionManagerEvent) => void
   onSessionUpdate: (session: Session) => void
-  /** Injectable so tests never touch a real child process. */
-  createTransport?: (sessionId: string) => SessionTransport
+  /** Injectable so tests never touch a real child process. `jevGuard` is the same computed config the real default branch would pass to `ClaudeHeadlessTransport` — exposed so tests can assert on it without constructing a real transport. */
+  createTransport?: (sessionId: string, opts: { jevGuard?: { apiKey: string; hookCommand: string } }) => SessionTransport
   /** Injectable so tests never touch real git — defaults to the real worktree.ts implementation. */
   createWorktree?: (repoPath: string, sessionId: string) => WorktreeResult
   /** Injectable so tests never touch the real filesystem/`claude plugin list` — defaults to the real discovery.ts implementation. */
   discoverSkillsAndAgents?: (project: Parameters<typeof discoverSkillsAndAgents>[0]) => Promise<DiscoveredSkillsAndAgents>
   /** Injectable so tests never touch the real filesystem — defaults to the real materialize.ts implementation. */
   materializeSkills?: typeof materializeSkillsImpl
+  /**
+   * JevGuard (Workstream J) — the full shell command string invoking this
+   * app's own compiled hook entry (built once, in `index.ts`, from
+   * `process.execPath` + the compiled `hooks/jevGuardHookEntry.js` path).
+   * Static for the life of the app — never changes per-session.
+   */
+  jevGuardHookCommand?: string
+  /** Reads the current TypeSafe key at session-start time (not cached) — mirrors how `index.ts`'s harness-run handler reads it fresh per run. */
+  getJevGuardApiKey?: () => string | null
 }
 
 interface PendingUsage {
@@ -221,9 +230,12 @@ export class SessionManager {
     this.deps.store.appendTurn(userTurn)
     this.deps.onEvent(sessionId, { kind: 'turn', payload: userTurn })
 
+    const jevGuardApiKey = project.jevGuardEnabled ? (this.deps.getJevGuardApiKey?.() ?? null) : null
+    const jevGuard = jevGuardApiKey && this.deps.jevGuardHookCommand ? { apiKey: jevGuardApiKey, hookCommand: this.deps.jevGuardHookCommand } : undefined
+
     const transport = this.deps.createTransport
-      ? this.deps.createTransport(sessionId)
-      : new ClaudeHeadlessTransport({ permissionTier: project.permissionTier })
+      ? this.deps.createTransport(sessionId, { jevGuard })
+      : new ClaudeHeadlessTransport({ permissionTier: project.permissionTier, jevGuard })
 
     const managed: ManagedSession = {
       session,
@@ -367,6 +379,14 @@ export class SessionManager {
       // before process exit, never after.
       managed.pendingUsage = event.payload as PendingUsage
       this.appendActivityLog(sessionId, { kind: 'decision', payload: event.payload })
+    }
+
+    if (event.kind === 'jev-guard-blocked') {
+      // The one real, visible trust signal JevGuard produces — a genuine
+      // real-time block the user can see, not a settings checkbox. Its own
+      // `ActivityLogEntry` kind, distinct from an ordinary failed tool call,
+      // so `ActionLog.tsx` can render it with its own plain-language label.
+      this.appendActivityLog(sessionId, { kind: 'jev-guard-blocked', payload: event.payload })
     }
   }
 

@@ -34,6 +34,8 @@ function summarize(entry: ActivityLogEntry): string {
   if (entry.kind === 'kill-switch') return 'Took back control — session stopped'
   if (entry.kind === 'permission-prompt') return 'Waiting for your confirmation'
   if (entry.kind === 'file-change') return 'File changed'
+  // `p.reason` is already a complete sentence (JevGuard's own hook writes it) — no need to re-compose one around it.
+  if (entry.kind === 'jev-guard-blocked') return `🛡 ${String(p.reason ?? `Blocked a ${String(p.toolName ?? 'tool')} call`)}`
 
   return entry.kind
 }
@@ -49,14 +51,31 @@ export function ActionLog({ entries }: { entries: ActivityLogEntry[] }) {
     <div className="sidebar glass" style={{ width: 240, flexShrink: 0 }} data-testid="action-log">
       <div>
         <div className="label">Action log</div>
-        {visible.map((entry) => (
-          <div key={entry.id} data-testid="action-log-row" style={{ fontSize: 11.5, lineHeight: 1.5, padding: '5px 2px', borderBottom: '1px solid var(--line)' }}>
-            <span className="mono" style={{ color: 'var(--faint)', marginRight: 6 }}>
-              {new Date(entry.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
-            </span>
-            <span style={{ color: 'var(--ink-2)' }}>{summarize(entry)}</span>
-          </div>
-        ))}
+        {visible.map((entry) => {
+          const blocked = entry.kind === 'jev-guard-blocked'
+          return (
+            <div
+              key={entry.id}
+              data-testid="action-log-row"
+              data-jev-guard-blocked={blocked ? 'true' : undefined}
+              style={{
+                fontSize: 11.5,
+                lineHeight: 1.5,
+                padding: '5px 2px',
+                borderBottom: '1px solid var(--line)',
+                background: blocked ? 'var(--state-danger-soft)' : undefined,
+                borderRadius: blocked ? 6 : undefined,
+              }}
+            >
+              <span className="mono" style={{ color: 'var(--faint)', marginRight: 6 }}>
+                {new Date(entry.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+              </span>
+              <span style={{ color: blocked ? 'var(--state-danger)' : 'var(--ink-2)', fontWeight: blocked ? 600 : undefined }}>
+                {summarize(entry)}
+              </span>
+            </div>
+          )
+        })}
       </div>
     </div>
   )

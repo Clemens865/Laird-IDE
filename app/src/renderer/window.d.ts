@@ -109,6 +109,7 @@ declare global {
           permissionTier?: Project['permissionTier']
           approvalMode?: Project['approvalMode']
         }) => Promise<Project | undefined>
+        setJevGuard: (opts: { projectId: string; enabled: boolean }) => Promise<Project | undefined>
       }
       skills: {
         list: (opts: { projectId: string }) => Promise<SkillsListResult>

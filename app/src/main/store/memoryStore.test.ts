@@ -15,6 +15,7 @@ function makeProject(overrides: Partial<Project> = {}): Project {
     approvalMode: 'auto',
     autonomyRevoked: false,
     harnessCriteria: [],
+    jevGuardEnabled: false,
     jevFeatures: { criterionRouting: false, shortcutDetection: false, criteriaPrefilter: false, adaptiveMultiRun: false },
     ...overrides,
   }
@@ -74,6 +75,18 @@ describe('MemoryStore — harness mode', () => {
 
     store.setCostCeiling('p1', undefined)
     expect(store.getProject('p1')?.harnessCostCeilingUsd).toBeUndefined()
+  })
+
+  it("toggles a project's JevGuard opt-in", () => {
+    const store = new MemoryStore(null)
+    store.upsertProject(makeProject({ id: 'p1' }))
+    expect(store.getProject('p1')?.jevGuardEnabled).toBe(false)
+
+    store.setJevGuardEnabled('p1', true)
+    expect(store.getProject('p1')?.jevGuardEnabled).toBe(true)
+
+    store.setJevGuardEnabled('p1', false)
+    expect(store.getProject('p1')?.jevGuardEnabled).toBe(false)
   })
 
   it('appends and lists harness runs scoped to their project', () => {

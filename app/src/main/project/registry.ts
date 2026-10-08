@@ -24,6 +24,7 @@ export function addProject(store: MemoryStore, opts: { path: string; name?: stri
     approvalMode: 'auto',
     autonomyRevoked: false,
     harnessCriteria: [],
+    jevGuardEnabled: false,
     jevFeatures: { criterionRouting: false, shortcutDetection: false, criteriaPrefilter: false, adaptiveMultiRun: false },
   }
   store.upsertProject(project)

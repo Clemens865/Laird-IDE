@@ -114,4 +114,49 @@ describe('ClaudeHeadlessTransport hardening', () => {
     const mcpConfigIndex = capturedArgs.indexOf('--mcp-config')
     expect(JSON.parse(capturedArgs[mcpConfigIndex + 1])).toEqual({ mcpServers: { playwright: { command: 'npx', args: ['@playwright/mcp@latest'] } } })
   })
+
+  it('without jevGuard, hooks stay fully disabled and setting-sources stays "project" — byte-identical to every prior session', () => {
+    let capturedArgs: string[] = []
+    const transport = new ClaudeHeadlessTransport({
+      spawnFn: ((_cmd: string, args: string[]) => {
+        capturedArgs = args
+        return spawnHungProcess()
+      }) as never,
+    })
+    transport.start({ cwd: '/tmp', prompt: 'irrelevant' })
+    transport.stop()
+
+    const settingsIndex = capturedArgs.indexOf('--settings')
+    expect(JSON.parse(capturedArgs[settingsIndex + 1])).toEqual({ disableAllHooks: true })
+    const sourcesIndex = capturedArgs.indexOf('--setting-sources')
+    expect(capturedArgs[sourcesIndex + 1]).toBe('project')
+  })
+
+  it('jevGuard re-enables hooks for exactly one Laird-authored PreToolUse command and drops project from setting-sources', () => {
+    let capturedArgs: string[] = []
+    let capturedEnv: NodeJS.ProcessEnv | undefined
+    const transport = new ClaudeHeadlessTransport({
+      jevGuard: { apiKey: 'sk-test-guard-key', hookCommand: "ELECTRON_RUN_AS_NODE=1 '/path/to/electron' '/path/to/jevGuardHookEntry.js'" },
+      spawnFn: ((_cmd: string, args: string[], opts: { env?: NodeJS.ProcessEnv }) => {
+        capturedArgs = args
+        capturedEnv = opts?.env
+        return spawnHungProcess()
+      }) as never,
+    })
+    transport.start({ cwd: '/tmp', prompt: 'irrelevant' })
+    transport.stop()
+
+    const settingsIndex = capturedArgs.indexOf('--settings')
+    expect(JSON.parse(capturedArgs[settingsIndex + 1])).toEqual({
+      disableAllHooks: false,
+      hooks: {
+        PreToolUse: [
+          { matcher: '*', hooks: [{ type: 'command', command: "ELECTRON_RUN_AS_NODE=1 '/path/to/electron' '/path/to/jevGuardHookEntry.js'" }] },
+        ],
+      },
+    })
+    const sourcesIndex = capturedArgs.indexOf('--setting-sources')
+    expect(capturedArgs[sourcesIndex + 1]).toBe('')
+    expect(capturedEnv?.LAIRD_TYPESAFE_KEY).toBe('sk-test-guard-key')
+  })
 })

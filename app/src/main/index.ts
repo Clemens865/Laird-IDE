@@ -68,6 +68,25 @@ const store = new MemoryStore(isDev ? null : defaultSnapshotPath(app.getPath('us
 const typesafeKeyStore = new TypesafeKeyStore(defaultTypesafeKeyPath(app.getPath('userData')), safeStorage)
 
 /**
+ * JevGuard (Workstream J) — the full shell command Claude Code's own
+ * `PreToolUse` hook config invokes. Runs via this app's own Electron binary
+ * in `ELECTRON_RUN_AS_NODE` mode (never assumes a system `node` is on
+ * PATH — a packaged app can't rely on that), pointed at the hook's own
+ * compiled entry (a second rollup input alongside `index.js` — see
+ * `electron.vite.config.ts`), a stable sibling path of this very file's own
+ * `__dirname` in both dev and packaged builds. Single-quoted for real POSIX
+ * shell safety (a packaged app's own path — e.g. "/Applications/Laird.app/…"
+ * — never contains a literal `'`, but this is the one place a real user's
+ * filesystem path becomes a shell command string, so it's quoted properly
+ * rather than assumed safe).
+ */
+function shellQuote(value: string): string {
+  return `'${value.replace(/'/g, `'\\''`)}'`
+}
+const jevGuardHookEntryPath = join(__dirname, 'hooks/jevGuardHookEntry.js')
+const jevGuardHookCommand = `ELECTRON_RUN_AS_NODE=1 ${shellQuote(process.execPath)} ${shellQuote(jevGuardHookEntryPath)}`
+
+/**
  * The real root cause of a real hang, found live: quitting the app while a
  * session is still active lets that session's eventual exit/update arrive
  * *after* the window has already been destroyed. `mainWindow?.` only guards
@@ -91,6 +110,8 @@ const sessionManager = new SessionManager({
   onSessionUpdate: (session) => {
     sendToMainWindow(IPC.SESSION_EVENT, session.id, { kind: 'session-status', payload: session })
   },
+  jevGuardHookCommand,
+  getJevGuardApiKey: () => typesafeKeyStore.getKey(),
 })
 
 // Direct fix for the orphaned-process behavior observed in chunk 2 (killing
@@ -154,6 +175,12 @@ ipcHandle(
     return store.getProject(opts.projectId)
   },
 )
+
+ipcHandle(IPC.PROJECT_SET_JEV_GUARD, (event, opts: { projectId: string; enabled: boolean }) => {
+  assertMainFrame(event)
+  store.setJevGuardEnabled(opts.projectId, opts.enabled)
+  return store.getProject(opts.projectId)
+})
 
 ipcHandle(IPC.PROJECT_REMOVE, (event, opts: { id: string }) => {
   assertMainFrame(event)

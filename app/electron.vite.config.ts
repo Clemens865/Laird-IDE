@@ -9,6 +9,11 @@ export default defineConfig({
       rollupOptions: {
         input: {
           index: resolve(__dirname, 'src/main/index.ts'),
+          // A real `PreToolUse` hook command — Claude Code invokes this as
+          // its own OS process via a plain shell command string, so it
+          // needs a stable, deterministic compiled path relative to
+          // index.js's own __dirname (see claudeHeadlessTransport.ts).
+          'hooks/jevGuardHookEntry': resolve(__dirname, 'src/main/hooks/jevGuardHookEntry.ts'),
         },
       },
     },

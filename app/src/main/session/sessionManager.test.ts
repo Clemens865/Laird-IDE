@@ -22,6 +22,7 @@ function makeProject(overrides: Partial<Project> = {}): Project {
     approvalMode: 'auto',
     autonomyRevoked: false,
     harnessCriteria: [],
+    jevGuardEnabled: false,
     jevFeatures: { criterionRouting: false, shortcutDetection: false, criteriaPrefilter: false, adaptiveMultiRun: false },
     ...overrides,
   }
@@ -118,6 +119,20 @@ describe('SessionManager', () => {
     const log = store.getActivityLog(sessionId)
     expect(log).toHaveLength(1)
     expect(log[0]).toMatchObject({ kind: 'tool-call', payload: { name: 'Write' } })
+  })
+
+  it('records a jev-guard-blocked event as its own activity log entry, forwarded live to the renderer', async () => {
+    const { store, fakeTransport, manager, onEvent } = setup()
+    const sessionId = await manager.startSession({ projectId: 'p1', prompt: 'irrelevant' })
+    onEvent.mockClear()
+
+    const payload = { toolUseId: 'toolu_1', toolName: 'Bash', reason: 'JevGuard blocked this Bash call — 92% confidence it would destroy real data.' }
+    fakeTransport.emit({ kind: 'jev-guard-blocked', payload })
+
+    expect(onEvent).toHaveBeenCalledWith(sessionId, { kind: 'jev-guard-blocked', payload })
+    const log = store.getActivityLog(sessionId)
+    expect(log).toHaveLength(1)
+    expect(log[0]).toMatchObject({ kind: 'jev-guard-blocked', payload })
   })
 
   it('dedupes a tool-call event that repeats the same tool_use id (the real CLI emits one twice under --include-partial-messages: once as a partial stream_event, once as the complete assistant message)', async () => {
@@ -549,6 +564,83 @@ describe('SessionManager', () => {
 
       const sessionB = await manager.startSession({ projectId: 'p2', prompt: 'B' })
       expect(transports.get(sessionB)!.started).toBe(true)
+    })
+  })
+
+  describe('JevGuard wiring (Workstream J)', () => {
+    it('passes a computed jevGuard config to the transport when the project opted in and a key is configured', async () => {
+      const store = new MemoryStore(null)
+      store.upsertProject(makeProject({ id: 'p1', jevGuardEnabled: true }))
+      let capturedJevGuard: { apiKey: string; hookCommand: string } | undefined
+      const manager = new SessionManager({
+        store,
+        onEvent: () => {},
+        onSessionUpdate: () => {},
+        createTransport: (_sessionId, opts) => {
+          capturedJevGuard = opts.jevGuard
+          return new FakeTransport()
+        },
+        createWorktree: (repoPath, sessionId) => ({ path: repoPath, branch: `laird/${sessionId}`, isGitRepo: true }),
+        discoverSkillsAndAgents: noSkills,
+        materializeSkills: noMaterialize,
+        jevGuardHookCommand: "ELECTRON_RUN_AS_NODE=1 '/path/to/electron' '/path/to/jevGuardHookEntry.js'",
+        getJevGuardApiKey: () => 'sk-test-guard-key',
+      })
+
+      await manager.startSession({ projectId: 'p1', prompt: 'irrelevant' })
+
+      expect(capturedJevGuard).toEqual({
+        apiKey: 'sk-test-guard-key',
+        hookCommand: "ELECTRON_RUN_AS_NODE=1 '/path/to/electron' '/path/to/jevGuardHookEntry.js'",
+      })
+    })
+
+    it('never passes jevGuard when the project has not opted in, even with a key configured', async () => {
+      const store = new MemoryStore(null)
+      store.upsertProject(makeProject({ id: 'p1', jevGuardEnabled: false }))
+      let capturedJevGuard: { apiKey: string; hookCommand: string } | undefined = { apiKey: 'sentinel', hookCommand: 'sentinel' }
+      const manager = new SessionManager({
+        store,
+        onEvent: () => {},
+        onSessionUpdate: () => {},
+        createTransport: (_sessionId, opts) => {
+          capturedJevGuard = opts.jevGuard
+          return new FakeTransport()
+        },
+        createWorktree: (repoPath, sessionId) => ({ path: repoPath, branch: `laird/${sessionId}`, isGitRepo: true }),
+        discoverSkillsAndAgents: noSkills,
+        materializeSkills: noMaterialize,
+        jevGuardHookCommand: "ELECTRON_RUN_AS_NODE=1 '/path/to/electron' '/path/to/jevGuardHookEntry.js'",
+        getJevGuardApiKey: () => 'sk-test-guard-key',
+      })
+
+      await manager.startSession({ projectId: 'p1', prompt: 'irrelevant' })
+
+      expect(capturedJevGuard).toBeUndefined()
+    })
+
+    it('never passes jevGuard when opted in but no key is configured (fails open, not a crash)', async () => {
+      const store = new MemoryStore(null)
+      store.upsertProject(makeProject({ id: 'p1', jevGuardEnabled: true }))
+      let capturedJevGuard: { apiKey: string; hookCommand: string } | undefined = { apiKey: 'sentinel', hookCommand: 'sentinel' }
+      const manager = new SessionManager({
+        store,
+        onEvent: () => {},
+        onSessionUpdate: () => {},
+        createTransport: (_sessionId, opts) => {
+          capturedJevGuard = opts.jevGuard
+          return new FakeTransport()
+        },
+        createWorktree: (repoPath, sessionId) => ({ path: repoPath, branch: `laird/${sessionId}`, isGitRepo: true }),
+        discoverSkillsAndAgents: noSkills,
+        materializeSkills: noMaterialize,
+        jevGuardHookCommand: "ELECTRON_RUN_AS_NODE=1 '/path/to/electron' '/path/to/jevGuardHookEntry.js'",
+        getJevGuardApiKey: () => null,
+      })
+
+      await manager.startSession({ projectId: 'p1', prompt: 'irrelevant' })
+
+      expect(capturedJevGuard).toBeUndefined()
     })
   })
 })

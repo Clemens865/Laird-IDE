@@ -199,6 +199,56 @@ describe('mapEvents', () => {
     expect(events[0]).toMatchObject({ kind: 'tool-call', payload: { name: 'Agent', status: 'started' } })
   })
 
+  // Workstream J (JevGuard) — the exact real `"type":"user"` tool_result
+  // shape captured live during planning against the real CLI (2.1.294),
+  // for a hook that returned `permissionDecision: "deny"`.
+  it('maps a real JevGuard-blocked tool_result to a jev-guard-blocked event', () => {
+    const line = JSON.stringify({
+      type: 'user',
+      message: {
+        role: 'user',
+        content: [
+          {
+            tool_use_id: 'toolu_01JRYALSwAiRyVd19xBG8fAt',
+            type: 'tool_result',
+            content:
+              'PreToolUse:Bash hook error: JevGuard blocked this Bash call — 92% confidence it would destroy or irreversibly overwrite real data.',
+            is_error: true,
+          },
+        ],
+      },
+    })
+    expect(mapEvents(line)).toEqual([
+      {
+        kind: 'jev-guard-blocked',
+        payload: {
+          toolUseId: 'toolu_01JRYALSwAiRyVd19xBG8fAt',
+          toolName: 'Bash',
+          reason: 'JevGuard blocked this Bash call — 92% confidence it would destroy or irreversibly overwrite real data.',
+        },
+      },
+    ])
+  })
+
+  it('does not mistake an ordinary (non-JevGuard) tool error for a JevGuard block', () => {
+    const line = JSON.stringify({
+      type: 'user',
+      message: {
+        role: 'user',
+        content: [{ tool_use_id: 't1', type: 'tool_result', content: 'File not found: /tmp/missing.txt', is_error: true }],
+      },
+    })
+    expect(mapEvents(line)).toEqual([])
+  })
+
+  it('ignores a real (non-error) tool_result line entirely', () => {
+    const line = JSON.stringify({
+      type: 'user',
+      message: { role: 'user', content: [{ tool_use_id: 't1', type: 'tool_result', content: '1\thello world\n', is_error: false }] },
+    })
+    expect(mapEvents(line)).toEqual([])
+  })
+
   it('returns an empty array for an unparseable line', () => {
     expect(mapEvents('not json')).toEqual([])
   })

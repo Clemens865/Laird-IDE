@@ -63,6 +63,7 @@ const project: Project = {
   harnessCriteria: [trueCriterion, falseCriterion],
   uiPreview: { command: 'node server.js', port: PORT },
   testCommand: undefined,
+  jevGuardEnabled: false,
   jevFeatures: { criterionRouting: true, shortcutDetection: false, criteriaPrefilter: false, adaptiveMultiRun: false },
 }
 

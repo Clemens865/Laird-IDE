@@ -47,4 +47,5 @@ export const IPC = {
   FILES_LIST: 'files:list',
   FILES_READ: 'files:read',
   FILES_OPEN_EXTERNAL: 'files:open-external',
+  PROJECT_SET_JEV_GUARD: 'project:set-jev-guard',
 } as const

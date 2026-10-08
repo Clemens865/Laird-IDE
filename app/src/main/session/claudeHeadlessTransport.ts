@@ -33,6 +33,22 @@ export interface ClaudeHeadlessTransportOptions {
    * call-specific grant, never ambient project/user MCP config.
    */
   mcpServers?: Record<string, unknown>
+  /**
+   * JevGuard (Workstream J) — when provided, re-enables Claude Code hooks
+   * (hard-disabled otherwise) for exactly one, Laird-authored `PreToolUse`
+   * hook (`hookCommand`, a full shell command string built by `index.ts`
+   * from this app's own `execPath` + the compiled hook entry's path) and
+   * drops `project` from `--setting-sources` so a project's own ambient
+   * hooks can never load alongside it — live-verified during planning:
+   * `--settings` genuinely MERGES with (never overrides) project-sourced
+   * settings, so this is the only way to guarantee Laird's hook is the
+   * *only* one that ever runs. `apiKey` reaches the hook's own child
+   * process via an env var, never through this transport's own stdout/
+   * stdin. Absent entirely, behavior is byte-identical to every existing
+   * session — hooks stay fully disabled, `--setting-sources` stays
+   * `project`.
+   */
+  jevGuard?: { apiKey: string; hookCommand: string }
 }
 
 /**
@@ -49,6 +65,7 @@ export class ClaudeHeadlessTransport implements SessionTransport {
   private readonly idleTimeoutMs: number
   private readonly allowedToolsOverride?: string[]
   private readonly mcpServers: Record<string, unknown>
+  private readonly jevGuard?: { apiKey: string; hookCommand: string }
   private child: ChildProcessWithoutNullStreams | null = null
   private buffer = ''
   private idleTimer: ReturnType<typeof setTimeout> | null = null
@@ -62,6 +79,7 @@ export class ClaudeHeadlessTransport implements SessionTransport {
     this.idleTimeoutMs = opts.idleTimeoutMs ?? DEFAULT_IDLE_TIMEOUT_MS
     this.allowedToolsOverride = opts.allowedToolsOverride
     this.mcpServers = opts.mcpServers ?? {}
+    this.jevGuard = opts.jevGuard
   }
 
   onEvent(cb: (e: SessionTransportEvent) => void): void {
@@ -78,16 +96,28 @@ export class ClaudeHeadlessTransport implements SessionTransport {
     }
     this.stopped = false
 
+    const settings = this.jevGuard
+      ? {
+          disableAllHooks: false,
+          hooks: { PreToolUse: [{ matcher: '*', hooks: [{ type: 'command', command: this.jevGuard.hookCommand }] }] },
+        }
+      : { disableAllHooks: true }
+
     const args = [
       '-p',
       '--output-format', 'stream-json',
       '--include-partial-messages',
       '--verbose',
       '--model', opts.model ?? DEFAULT_MODEL,
-      '--settings', JSON.stringify({ disableAllHooks: true }),
+      '--settings', JSON.stringify(settings),
       '--mcp-config', JSON.stringify({ mcpServers: this.mcpServers }),
       '--strict-mcp-config',
-      '--setting-sources', 'project',
+      // Live-verified during planning: `--settings`'s own hooks genuinely
+      // MERGE with whatever `--setting-sources` loads — so once JevGuard is
+      // active, `project` must be dropped entirely or a project's own
+      // ambient hooks would run right alongside Laird's own. Byte-identical
+      // to every prior session otherwise (jevGuard absent → stays 'project').
+      '--setting-sources', this.jevGuard ? '' : 'project',
       ...(this.allowedToolsOverride ? ['--allowedTools', this.allowedToolsOverride.join(',')] : buildPermissionArgs(this.permissionTier)),
     ]
     if (opts.resumeId) args.push('--resume', opts.resumeId)
@@ -95,6 +125,7 @@ export class ClaudeHeadlessTransport implements SessionTransport {
     const child = this.spawnFn('claude', args, {
       cwd: opts.cwd,
       stdio: ['pipe', 'pipe', 'pipe'],
+      ...(this.jevGuard ? { env: { ...process.env, LAIRD_TYPESAFE_KEY: this.jevGuard.apiKey } } : {}),
     }) as ChildProcessWithoutNullStreams
 
     this.child = child

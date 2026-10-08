@@ -131,6 +131,32 @@ export function mapEvents(line: string): SessionTransportEvent[] {
     return out
   }
 
+  // JevGuard (Workstream J) — a blocked tool call arrives as an ordinary
+  // `"type":"user"` tool_result message, `is_error: true`, with content in
+  // the exact shape Claude Code itself produces for a `PreToolUse` hook
+  // denial: `"PreToolUse:<ToolName> hook error: <reason>"` — live-verified
+  // against the real CLI during planning. Only JevGuard's own reason text
+  // (always starting "JevGuard blocked…", set in `hooks/jevGuard.ts`) is
+  // recognized here — any other hook/permission denial is deliberately left
+  // as an ordinary failed tool call, not mislabeled.
+  if (obj.type === 'user') {
+    const content = (obj.message as { content?: unknown[] } | undefined)?.content
+    if (Array.isArray(content)) {
+      for (const raw of content) {
+        const block = raw as Record<string, unknown>
+        if (block.type !== 'tool_result' || block.is_error !== true || typeof block.content !== 'string') continue
+        const match = block.content.match(/^PreToolUse:(\S+) hook error: (JevGuard blocked[\s\S]*)$/)
+        if (match) {
+          out.push({
+            kind: 'jev-guard-blocked',
+            payload: { toolUseId: block.tool_use_id, toolName: match[1], reason: match[2] },
+          })
+        }
+      }
+    }
+    return out
+  }
+
   if (obj.type === 'result') {
     // Real token breakdown the CLI already reports on every turn (confirmed
     // live, Foundation workstream's own spike) — previously parsed but

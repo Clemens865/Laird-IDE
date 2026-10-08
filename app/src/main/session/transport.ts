@@ -1,5 +1,5 @@
 export interface SessionTransportEvent {
-  kind: 'text' | 'tool-call' | 'file-change' | 'usage' | 'session-id' | 'error' | 'subagent'
+  kind: 'text' | 'tool-call' | 'file-change' | 'usage' | 'session-id' | 'error' | 'subagent' | 'jev-guard-blocked'
   payload: unknown
   turnId?: string
 }
