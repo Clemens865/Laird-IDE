@@ -3,6 +3,7 @@ export {}
 import type { HarnessRun, Project, Skill, SubagentDefinition } from '../shared/types'
 import type { DirectoryListing, FilePreview } from '../main/files/browser'
 import type { UpdateEvent } from '../main/update/autoUpdater'
+import type { BatteryState } from '../main/system/battery'
 
 interface SessionTransportEvent {
   kind: string
@@ -111,6 +112,10 @@ declare global {
           approvalMode?: Project['approvalMode']
         }) => Promise<Project | undefined>
         setJevGuard: (opts: { projectId: string; enabled: boolean }) => Promise<Project | undefined>
+        pickFolder: () => Promise<string | null>
+      }
+      system: {
+        getBattery: () => Promise<BatteryState | null>
       }
       skills: {
         list: (opts: { projectId: string }) => Promise<SkillsListResult>

@@ -20,6 +20,7 @@ import { SkillsView } from './components/SkillsView'
 import { SubagentRoster } from './components/SubagentRoster'
 import { Topbar, type AppView } from './components/Topbar'
 import { UpdateBanner } from './components/UpdateBanner'
+import { useEffectsTier } from './theme/useEffectsTier'
 
 interface PendingConfirmation {
   confirmationId: string
@@ -60,6 +61,14 @@ export function App() {
   // sessionId -> projectId: populated the moment a session starts, since
   // raw transport/turn events only carry a sessionId, not a projectId.
   const sessionOwner = useRef<Record<string, string>>({})
+
+  // Quality tiering (Workspace-OS's own pattern) — set on <html> so
+  // tokens.css's [data-effects] rules reach every .glass/.grain/.mist-blob
+  // regardless of DOM depth.
+  const effectsTier = useEffectsTier()
+  useEffect(() => {
+    document.documentElement.dataset.effects = effectsTier
+  }, [effectsTier])
 
   useEffect(() => {
     window.laird.project.list().then((loaded) => {
@@ -117,16 +126,29 @@ export function App() {
     return unsubscribe
   }, [])
 
-  const handleAddProject = useCallback(async () => {
-    const path = newProjectPath.trim()
-    if (!path) return
+  const addProjectAtPath = useCallback(async (path: string) => {
     const project = await window.laird.project.add({ path })
     setProjects((prev) => [...prev, project])
     setSessionState((prev) => ({ ...prev, [project.id]: emptyState() }))
     setSelectedProjectId(project.id)
     setNewProjectPath('')
     setAddingProject(false)
-  }, [newProjectPath])
+  }, [])
+
+  const handleAddProject = useCallback(async () => {
+    const path = newProjectPath.trim()
+    if (!path) return
+    await addProjectAtPath(path)
+  }, [newProjectPath, addProjectAtPath])
+
+  // The native, Finder-style way to choose a project directory — kept
+  // alongside manual path entry (handleAddProject above), not replacing it,
+  // for anyone who already knows the exact path. Picking a folder is itself
+  // the confirmation — no second click needed, unlike the text-entry path.
+  const handlePickFolder = useCallback(async () => {
+    const path = await window.laird.project.pickFolder()
+    if (path) await addProjectAtPath(path)
+  }, [addProjectAtPath])
 
   // Replaces the project in-place everywhere it's held, after any call that
   // returns an updated Project (kill, grant-autonomy, permission changes).
@@ -244,6 +266,11 @@ export function App() {
           ))}
         {addingProject ? (
           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <button className="tab-add" onClick={handlePickFolder} data-testid="browse-project-folder" aria-label="Browse for a folder">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+                <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z" />
+              </svg>
+            </button>
             <input
               data-testid="new-project-path-input"
               value={newProjectPath}

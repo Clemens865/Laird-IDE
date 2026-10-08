@@ -48,6 +48,8 @@ export const IPC = {
   FILES_READ: 'files:read',
   FILES_OPEN_EXTERNAL: 'files:open-external',
   PROJECT_SET_JEV_GUARD: 'project:set-jev-guard',
+  PROJECT_PICK_FOLDER: 'project:pick-folder',
+  SYSTEM_BATTERY_GET: 'system:battery-get',
   UPDATE_CHECK: 'update:check',
   UPDATE_DOWNLOAD: 'update:download',
   UPDATE_INSTALL: 'update:install',

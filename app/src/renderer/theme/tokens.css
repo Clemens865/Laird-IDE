@@ -93,6 +93,44 @@
   }
 }
 
+/* Quality tiering (Workspace-OS's own `useBackdrop.ts` pattern — an
+   auto/full/light/off tier resolved from real battery state +
+   prefers-reduced-motion, applied here to Laird's CSS/SVG glass effects
+   instead of a WebGL frame budget), set as `data-effects` on <html> by
+   `theme/useEffectsTier.ts`. The design-system NFR doc's own "cap
+   simultaneous heavy visual effects" intent, finally enforced as real
+   runtime logic rather than just a design statement.
+
+   "light" eases off the two costliest effects (backdrop-filter blur + the
+   SVG displacement distortion) specifically when running unplugged and
+   low — never just "any time on battery." "off" always coincides with the
+   reduced-motion media query above (resolveEffectsTier's own strongest,
+   non-negotiable signal), so it flattens the glass fully rather than
+   leaving a half-blurred, motionless-but-still-expensive panel. */
+[data-effects="light"] .glass {
+  backdrop-filter: blur(10px) saturate(120%);
+  -webkit-backdrop-filter: blur(10px) saturate(120%);
+}
+[data-effects="light"] .glass::before {
+  opacity: 0.25;
+}
+[data-effects="light"] .mist-blob {
+  filter: blur(40px);
+}
+
+[data-effects="off"] .glass {
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  background: var(--paper-solid);
+}
+[data-effects="off"] .glass::before {
+  display: none;
+}
+[data-effects="off"] .grain,
+[data-effects="off"] .mist-layer {
+  display: none;
+}
+
 * { box-sizing: border-box; }
 
 body {

@@ -1,5 +1,5 @@
 import { join } from 'node:path'
-import { app, BrowserWindow, safeStorage } from 'electron'
+import { app, BrowserWindow, dialog, safeStorage } from 'electron'
 // `electron-updater` is a CommonJS module whose named exports don't resolve
 // cleanly through native ESM interop (confirmed live — a real app launch
 // threw `SyntaxError: Named export 'autoUpdater' not found` with a direct
@@ -44,6 +44,7 @@ import { MemoryStore, defaultSnapshotPath } from './store/memoryStore'
 import { SessionManager } from './session/sessionManager'
 import { buildSessionHistory } from './session/history'
 import { wireAutoUpdater, type UpdateEvent } from './update/autoUpdater'
+import { getBatteryState } from './system/battery'
 import type { Project } from '../shared/types'
 
 const isDev = !app.isPackaged
@@ -199,6 +200,20 @@ ipcHandle(IPC.SESSION_HISTORY_LIST, (event, opts: { projectId: string }) => {
 ipcHandle(IPC.PROJECT_ADD, (event, opts: { path: string; name?: string }) => {
   assertMainFrame(event)
   return addProject(store, opts)
+})
+
+/** A real native folder picker — the Finder-native way to choose a project directory, alongside the existing manual-path text entry (kept, not replaced, for anyone who already knows the exact path). */
+ipcHandle(IPC.PROJECT_PICK_FOLDER, async (event) => {
+  assertMainFrame(event)
+  if (!mainWindow) return null
+  const result = await dialog.showOpenDialog(mainWindow, { properties: ['openDirectory', 'createDirectory'] })
+  if (result.canceled || result.filePaths.length === 0) return null
+  return result.filePaths[0]
+})
+
+ipcHandle(IPC.SYSTEM_BATTERY_GET, (event) => {
+  assertMainFrame(event)
+  return getBatteryState()
 })
 
 ipcHandle(IPC.PROJECT_LIST, (event) => {

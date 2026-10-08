@@ -6,6 +6,7 @@ import type { SessionHistoryEntry } from '../main/session/history'
 import type { RequestStartResult, SessionManagerEvent } from '../main/session/sessionManager'
 import type { DirectoryListing, FilePreview } from '../main/files/browser'
 import type { UpdateEvent } from '../main/update/autoUpdater'
+import type { BatteryState } from '../main/system/battery'
 import type { HarnessRun, Project, Skill } from '../shared/types'
 
 contextBridge.exposeInMainWorld('laird', {
@@ -38,6 +39,10 @@ contextBridge.exposeInMainWorld('laird', {
     }): Promise<Project | undefined> => ipcRenderer.invoke(IPC.PROJECT_SET_PERMISSIONS, opts),
     setJevGuard: (opts: { projectId: string; enabled: boolean }): Promise<Project | undefined> =>
       ipcRenderer.invoke(IPC.PROJECT_SET_JEV_GUARD, opts),
+    pickFolder: (): Promise<string | null> => ipcRenderer.invoke(IPC.PROJECT_PICK_FOLDER),
+  },
+  system: {
+    getBattery: (): Promise<BatteryState | null> => ipcRenderer.invoke(IPC.SYSTEM_BATTERY_GET),
   },
   skills: {
     list: (opts: { projectId: string }): Promise<DiscoveredSkillsAndAgents & { enabledGlobalSkillIds: string[] }> =>
