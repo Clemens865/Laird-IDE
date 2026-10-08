@@ -286,6 +286,7 @@ async function runUiReviewerPass(
 
   if (opts.sharedPreview) {
     const { url, cdpEndpoint, onLockChange } = opts.sharedPreview
+    console.error(`[harness] UI reviewer: sharing the embedded live-preview panel via CDP (${cdpEndpoint})`)
     onLockChange?.(true)
     try {
       return await runBrowserReviewerPass(project, criteria, url, playwrightMcpServers(cdpEndpoint), opts)
@@ -312,6 +313,7 @@ async function runUiReviewerPass(
     }))
   }
 
+  console.error(`[harness] UI reviewer: starting its own ephemeral dev server (\`${uiPreview.command}\`) — no shared preview panel was active for this project`)
   const devServer = startDevServer(project.path, uiPreview.command, { spawnFn: opts.devServerSpawnFn })
   try {
     const waitFn = opts.waitForPortFn ?? waitForPort

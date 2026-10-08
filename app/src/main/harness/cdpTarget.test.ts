@@ -15,6 +15,12 @@ describe('findCdpTargetUrl', () => {
     expect(result).toBe('ws://127.0.0.1:9335/devtools/page/preview')
   })
 
+  it('matches a bare-origin target even when Chrome normalizes it with a trailing slash the caller\'s own url lacks — a real mismatch found live', async () => {
+    const fetchFn = fakeFetch(200, [{ url: 'http://localhost:48181/', webSocketDebuggerUrl: 'ws://127.0.0.1:9335/devtools/page/preview' }])
+    const result = await findCdpTargetUrl(9335, 'http://localhost:48181', fetchFn)
+    expect(result).toBe('ws://127.0.0.1:9335/devtools/page/preview')
+  })
+
   it('returns null when nothing matches, never guessing a wrong target', async () => {
     const fetchFn = fakeFetch(200, [{ url: 'file:///app/index.html', webSocketDebuggerUrl: 'ws://127.0.0.1:9335/devtools/page/laird' }])
     const result = await findCdpTargetUrl(9335, 'http://localhost:48179/', fetchFn)
