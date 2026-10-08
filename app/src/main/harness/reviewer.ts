@@ -83,9 +83,12 @@ Respond with ONLY a single JSON object and nothing else — no markdown code fen
 {"results":[{"criterion":"<the exact criterion text, verbatim>","disposition":"ship|hold|rework|unverifiable","evidenceTier":"VERIFIED|CORROBORATED|UNCORROBORATED|INFERENCE|STATED","rationale":"<one or two plain-language sentences, citing the real file path(s) you checked if any>"}]}`
 }
 
-function buildUiReviewerPrompt(criteria: string[], url: string): string {
+function buildUiReviewerPrompt(criteria: string[], url: string, opts: { sharedBrowser?: boolean } = {}): string {
   const numbered = criteria.map((c, i) => `${i + 1}. ${c}`).join('\n')
-  return `You are a fresh, independent reviewer checking a real, running web UI. You have no prior conversation or context about how this project was built. You have browser tools (navigate, click, type, read page state, take a screenshot) — use them to actually visit and interact with the real page at ${url}. You never fix, edit, or suggest edits — you only check and report.
+  const sharedBrowserPreamble = opts.sharedBrowser
+    ? `IMPORTANT — you are connected to a shared browser that may have other, unrelated tabs open (including the host application's own UI), not just the one you need. Before doing anything else, call the tab-listing tool to see every open tab, find the one whose URL is exactly ${url}, and select it. Never create a new tab, and never interact with any tab other than the one at this exact URL. If you cannot find a tab at exactly that URL, stop — do not guess from any other tab — and report every criterion below as disposition "unverifiable" with evidenceTier "STATED", explaining that the expected tab wasn't found.\n\n`
+    : ''
+  return `${sharedBrowserPreamble}You are a fresh, independent reviewer checking a real, running web UI. You have no prior conversation or context about how this project was built. You have browser tools (navigate, click, type, read page state, take a screenshot) — use them to actually visit and interact with the real page at ${url}. You never fix, edit, or suggest edits — you only check and report.
 
 Check each numbered acceptance criterion below against what you actually see or do in the real running UI. For each one, decide exactly one disposition:
 - "ship": you directly navigated to/interacted with the real UI and it genuinely satisfies this criterion.
@@ -219,7 +222,7 @@ async function runBrowserReviewerPass(
   criteria: string[],
   url: string,
   mcpServers: Record<string, unknown>,
-  opts: { spawnFn?: typeof spawn; signal?: AbortSignal },
+  opts: { spawnFn?: typeof spawn; signal?: AbortSignal; sharedBrowser?: boolean },
 ): Promise<HarnessCriterionResult[]> {
   const transport = new ClaudeHeadlessTransport({
     spawnFn: opts.spawnFn,
@@ -236,7 +239,11 @@ async function runBrowserReviewerPass(
 
   const exitInfo = await new Promise<{ code: number | null; failure?: { kind: string; message: string } }>((resolve) => {
     transport.onExit(resolve)
-    transport.start({ cwd: project.path, prompt: buildUiReviewerPrompt(criteria, url), model: REVIEWER_MODEL })
+    transport.start({
+      cwd: project.path,
+      prompt: buildUiReviewerPrompt(criteria, url, { sharedBrowser: opts.sharedBrowser }),
+      model: REVIEWER_MODEL,
+    })
   })
   opts.signal?.removeEventListener('abort', onAbort)
 
@@ -265,11 +272,18 @@ async function runBrowserReviewerPass(
  * resolve this in `index.ts`, kept out of this module to stay
  * Electron-free and unit-testable), skips starting or stopping any dev
  * server at all — that real process is the panel's to own — and instead
- * points the reviewer's Playwright MCP server at the exact same already-
- * running page over CDP, so the user watches the harness click through the
- * same visible surface rather than a second, invisible browser.
- * `onLockChange` brackets that shared, input-contending window so the UI
- * can show a visible lock + reclaim affordance for exactly its duration.
+ * points the reviewer's Playwright MCP server at the same app's real
+ * *browser-level* CDP endpoint (`cdpEndpoint` — a single page's own CDP
+ * session only supports page-scoped domains, not target management, and
+ * fails outright with "Target.createTarget: Not supported" if handed a
+ * page-level one instead, confirmed live). That one endpoint covers every
+ * top-level view under Laird's own `--remote-debugging-port`, including
+ * Laird's own chrome window — `buildUiReviewerPrompt`'s own shared-browser
+ * preamble is what actually keeps the reviewer scoped to the right tab
+ * (list tabs, select the one at the exact right URL, refuse rather than
+ * guess if it's missing), this function alone does not. `onLockChange`
+ * brackets that shared, input-contending window so the UI can show a
+ * visible lock + reclaim affordance for exactly its duration.
  */
 async function runUiReviewerPass(
   project: Project,
@@ -289,7 +303,7 @@ async function runUiReviewerPass(
     console.error(`[harness] UI reviewer: sharing the embedded live-preview panel via CDP (${cdpEndpoint})`)
     onLockChange?.(true)
     try {
-      return await runBrowserReviewerPass(project, criteria, url, playwrightMcpServers(cdpEndpoint), opts)
+      return await runBrowserReviewerPass(project, criteria, url, playwrightMcpServers(cdpEndpoint), { ...opts, sharedBrowser: true })
     } finally {
       onLockChange?.(false)
     }

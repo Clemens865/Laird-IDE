@@ -508,6 +508,37 @@ describe('runReviewer — chunk 3 piece 3: sharing the embedded live-preview pan
     expect(mcpConfig.mcpServers.playwright.args).toEqual(['@playwright/mcp@latest', '--cdp-endpoint', 'ws://127.0.0.1:9335/devtools/page/abc'])
   })
 
+  it('instructs the reviewer to explicitly select the matching tab and never guess, since a shared browser-level endpoint also covers Laird\'s own window', async () => {
+    const replyJson = JSON.stringify({ results: [{ criterion: 'A', disposition: 'ship', evidenceTier: 'VERIFIED', rationale: 'ok' }] })
+    let capturedPrompt = ''
+    const reviewerSpawnFn = (() => {
+      const child = spawnFakeReviewer([assistantTextLine(replyJson)])
+      const originalWrite = child.stdin!.write.bind(child.stdin)
+      child.stdin!.write = ((chunk: unknown, ...rest: unknown[]) => {
+        capturedPrompt += String(chunk)
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        return (originalWrite as any)(chunk, ...rest)
+      }) as typeof child.stdin.write
+      return child
+    }) as unknown as typeof spawn
+    const fetchFn = fakeChoiceFetch({ c0: 'ui_interaction' })
+    const project = makeProject({
+      harnessCriteria: ['A'],
+      jevFeatures: { criterionRouting: true, shortcutDetection: false, criteriaPrefilter: false, adaptiveMultiRun: false },
+    })
+
+    await runReviewer(project, {
+      fetchFn,
+      jevApiKey: 'sk-test',
+      spawnFn: reviewerSpawnFn,
+      sharedPreview: { url: 'http://localhost:48179', cdpEndpoint: 'ws://127.0.0.1:9335/devtools/browser/abc' },
+    })
+
+    expect(capturedPrompt).toContain('shared browser')
+    expect(capturedPrompt).toContain('Never create a new tab')
+    expect(capturedPrompt).toContain('http://localhost:48179')
+  })
+
   it('brackets the shared, input-contending window with onLockChange(true) then onLockChange(false)', async () => {
     const replyJson = JSON.stringify({ results: [{ criterion: 'A', disposition: 'ship', evidenceTier: 'VERIFIED', rationale: 'ok' }] })
     const fetchFn = fakeChoiceFetch({ c0: 'ui_interaction' })

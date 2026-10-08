@@ -27,7 +27,7 @@ import { detectPreviewCommand } from './harness/previewDetect'
 import { detectTestCommand } from './harness/testRunner'
 import { runReviewer } from './harness/reviewer'
 import { classifyCriterionClarity } from './harness/jev'
-import { findCdpTargetUrl } from './harness/cdpTarget'
+import { cdpTargetExists, getBrowserCdpEndpoint } from './harness/cdpTarget'
 import { PreviewPanelManager } from './harness/previewPanel'
 import { TypesafeKeyStore, defaultTypesafeKeyPath } from './settings/typesafeKey'
 import { MemoryStore, defaultSnapshotPath } from './store/memoryStore'
@@ -253,38 +253,29 @@ ipcHandle(IPC.HARNESS_RUN_START, async (event, opts: { projectId: string }) => {
   const jevApiKey = anyJevFeatureEnabled ? (typesafeKeyStore.getKey() ?? undefined) : undefined
 
   // If the embedded live-preview panel already has this exact project's dev
-  // server up, the harness *would* share that same visible surface over
-  // CDP instead of starting a second, invisible one — the CDP-target
-  // resolution and lock-bracket machinery below are real and correctly
-  // unit-tested, but deliberately NOT activated yet. A real, billed
-  // end-to-end run confirmed a genuine protocol mismatch: Playwright's
-  // `connectOverCDP` (what `@playwright/mcp --cdp-endpoint` uses
-  // internally) expects a browser-level CDP endpoint so it can manage
-  // targets, but a single `WebContentsView`'s own CDP session only
-  // supports the narrower, page-scoped domains — handing it the
-  // page-level `webSocketDebuggerUrl` fails outright with "Target.
-  // createTarget: Not supported". The one apparent fix (pass the
-  // browser-level endpoint from `/json/version` instead) carries a real,
-  // unverified risk: that endpoint also covers Laird's own chrome window
-  // on the same `--remote-debugging-port`, and nothing yet constrains
-  // Playwright MCP to the embedded page specifically — it could end up
-  // driving Laird's own UI instead. Rather than ship that risk to
-  // validate it with more real, billed calls, the harness keeps using its
-  // own standalone ephemeral browser (chunk 3, proven reliable) until
-  // this is properly solved. Re-enable by uncommenting below once a real,
-  // target-scoped connection is confirmed safe.
+  // server up, the harness shares that same visible surface over CDP
+  // instead of starting a second, invisible one. Two real findings from
+  // live runs shaped this: (1) a page-level CDP session can't manage
+  // targets at all ("Target.createTarget: Not supported") — Playwright
+  // needs the real browser-level endpoint instead; (2) that endpoint
+  // covers every top-level view under this one `--remote-debugging-port`,
+  // including Laird's own chrome window, so `cdpTargetExists` only
+  // confirms the embedded page is genuinely still open — it's
+  // `buildUiReviewerPrompt`'s own shared-browser preamble (list tabs,
+  // select the one at the exact right URL, refuse rather than guess if
+  // it's missing) that actually keeps the reviewer off Laird's own UI.
   let sharedPreview: { url: string; cdpEndpoint: string; onLockChange: (locked: boolean) => void } | undefined
-  // const activePreview = previewPanelManager?.getState()
-  // if (activePreview?.projectId === project.id) {
-  //   const cdpEndpoint = await findCdpTargetUrl(CDP_PORT, activePreview.url)
-  //   if (cdpEndpoint) {
-  //     sharedPreview = {
-  //       url: activePreview.url,
-  //       cdpEndpoint,
-  //       onLockChange: (locked) => sendToMainWindow(IPC.PREVIEW_PANEL_LOCK_CHANGED, locked),
-  //     }
-  //   }
-  // }
+  const activePreview = previewPanelManager?.getState()
+  if (activePreview?.projectId === project.id && (await cdpTargetExists(CDP_PORT, activePreview.url))) {
+    const cdpEndpoint = await getBrowserCdpEndpoint(CDP_PORT)
+    if (cdpEndpoint) {
+      sharedPreview = {
+        url: activePreview.url,
+        cdpEndpoint,
+        onLockChange: (locked) => sendToMainWindow(IPC.PREVIEW_PANEL_LOCK_CHANGED, locked),
+      }
+    }
+  }
 
   const controller = new AbortController()
   activeHarnessRuns.set(project.id, controller)

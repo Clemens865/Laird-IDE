@@ -17,22 +17,46 @@ function sameUrl(a: string, b: string): boolean {
 }
 
 /**
- * Resolves the real `webSocketDebuggerUrl` for a specific page among every
- * real CDP target Electron's `--remote-debugging-port` lists (every
- * top-level WebContents, including the embedded live-preview panel and
- * Laird's own chrome) — matched by the real URL it's showing, so the
- * harness's Playwright MCP server (`--cdp-endpoint`) attaches to the exact
- * right one, never guessing which target is which.
+ * Confirms a specific page is currently a real, open CDP target — an
+ * existence check before attempting to share it, never a guess. (Does NOT
+ * return that page's own `webSocketDebuggerUrl` — a single page's CDP
+ * session only supports page-scoped domains, not target management, and
+ * connecting Playwright to one directly fails outright with "Target.
+ * createTarget: Not supported," confirmed live. See
+ * `getBrowserCdpEndpoint` for what a real browser automation tool
+ * actually needs.)
  */
-export async function findCdpTargetUrl(cdpPort: number, pageUrl: string, fetchFn: typeof fetch = fetch): Promise<string | null> {
+export async function cdpTargetExists(cdpPort: number, pageUrl: string, fetchFn: typeof fetch = fetch): Promise<boolean> {
   try {
     const res = await fetchFn(`http://127.0.0.1:${cdpPort}/json/list`)
-    if (!res.ok) return null
-    const targets = (await res.json()) as Array<{ url?: string; webSocketDebuggerUrl?: string }>
-    const match = targets.find((t) => t.url && sameUrl(t.url, pageUrl))
-    return match?.webSocketDebuggerUrl ?? null
+    if (!res.ok) return false
+    const targets = (await res.json()) as Array<{ url?: string }>
+    return targets.some((t) => t.url && sameUrl(t.url, pageUrl))
   } catch (err) {
-    console.error('[cdpTarget] failed to resolve the real CDP target', err)
+    console.error('[cdpTarget] failed to check the real CDP target list', err)
+    return false
+  }
+}
+
+/**
+ * The real browser-level CDP endpoint — what Playwright's
+ * `connectOverCDP` (and so `@playwright/mcp --cdp-endpoint`) actually
+ * needs to manage targets at all. This one endpoint covers *every*
+ * top-level WebContents under Laird's `--remote-debugging-port`,
+ * including Laird's own chrome window — it doesn't scope access to just
+ * the embedded preview by itself. The caller is responsible for steering
+ * the reviewer to the right tab (`reviewer.ts`'s own shared-preview
+ * prompt, via the real `browser_tabs` list/select tool) rather than
+ * trusting whichever tab Playwright happens to default to.
+ */
+export async function getBrowserCdpEndpoint(cdpPort: number, fetchFn: typeof fetch = fetch): Promise<string | null> {
+  try {
+    const res = await fetchFn(`http://127.0.0.1:${cdpPort}/json/version`)
+    if (!res.ok) return null
+    const info = (await res.json()) as { webSocketDebuggerUrl?: string }
+    return info.webSocketDebuggerUrl ?? null
+  } catch (err) {
+    console.error('[cdpTarget] failed to resolve the real browser-level CDP endpoint', err)
     return null
   }
 }

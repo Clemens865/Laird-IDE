@@ -1,19 +1,17 @@
 // Embedded-preview piece 3 verification — the real, complete pipeline
 // through the real UI: a real TypeSafe key entered into Laird's own key
-// field, real Jev criterion routing, and a real embedded live-preview
-// panel open at the same time as a real harness run.
+// field, real Jev criterion routing, a real embedded live-preview panel,
+// and the harness's own browser-driven reviewer sharing that exact panel
+// over CDP instead of a second, invisible browser.
 //
-// A real, billed run of an earlier version of this file is what actually
-// found the reason CDP-sharing is currently disabled (see index.ts's own
-// comment): Playwright's `connectOverCDP` needs a browser-level CDP
-// endpoint to manage targets, but a single `WebContentsView`'s CDP session
-// only supports the page-scoped domains — handing it a page-level
-// `webSocketDebuggerUrl` fails outright with "Target.createTarget: Not
-// supported". So today this file verifies the current, intentional
-// behavior instead: a harness run still works correctly via its own
-// standalone ephemeral browser even while an unrelated live preview
-// happens to be open for the same project, and does NOT show the
-// sharing lock banner (since sharing isn't active).
+// Two real, billed runs of earlier versions of this file found two real
+// bugs (both now fixed, see cdpTarget.ts's and reviewer.ts's own history):
+// a trailing-slash URL mismatch that silently broke target lookup, and a
+// page-level-vs-browser-level CDP endpoint mismatch ("Target.createTarget:
+// Not supported") — fixed by connecting at the browser level and
+// instructing the reviewer to explicitly select the matching tab rather
+// than ever creating one or touching any other tab (Laird's own chrome
+// window shares that same endpoint).
 //
 // Gated behind LAIRD_E2E_REAL_SESSION=1 — makes real, billed API calls
 // (both TypeSafe and a real `claude -p` reviewer). Requires a real
@@ -108,22 +106,30 @@ http.createServer((req, res) => { res.writeHead(200, {'Content-Type': 'text/html
   const previewTargetBefore = cdpTargetsBefore.find((t) => t.url === `http://localhost:${PORT}/`)
   check('the real embedded preview is up as its own CDP target before the run', Boolean(previewTargetBefore))
 
-  // Run the real harness while the live preview is still open. CDP-sharing
-  // is currently disabled, so this exercises the standalone path.
+  // Run the real harness — real Jev routing should send this UI-shaped
+  // criterion to the already-open preview panel, not a second browser.
   await window.locator('[data-testid="harness-run-button"]').click()
+
+  const lockAppeared = await window
+    .waitForSelector('[data-testid="live-preview-locked-banner"]', { timeout: 30_000 })
+    .then(() => true)
+    .catch(() => false)
+  check('the live-preview lock banner appeared while the harness drove the shared panel', lockAppeared)
+
   await window.waitForSelector('[data-testid="harness-run-row"]', { timeout: 60_000 })
 
-  const lockBannerShown = (await window.locator('[data-testid="live-preview-locked-banner"]').count()) > 0
-  check('no sharing lock banner appears — CDP-sharing is currently disabled, by design', !lockBannerShown)
+  const lockGone = (await window.locator('[data-testid="live-preview-locked-banner"]').count()) === 0
+  check('the lock banner disappeared once the run finished', lockGone)
 
   const runRowText = await window.locator('[data-testid="harness-run-row"]').first().textContent()
   console.log('[harness-shared-preview] run row text:', runRowText)
-  check(
-    'the genuinely-true criterion was still correctly recognized as shipping, even with an unrelated live preview open',
-    runRowText.includes('SHIP'),
-  )
+  check('the genuinely-true criterion was recognized as shipping, checked via the real shared panel', runRowText.includes('SHIP'))
 
   check('the embedded live-preview panel itself is still visibly running, unaffected by the harness run', (await window.locator('[data-testid="live-preview-stop"]').count()) === 1)
+
+  const cdpTargetsAfter = await (await fetch(`http://127.0.0.1:${CDP_PORT}/json/list`)).json()
+  const previewTargetsAfter = cdpTargetsAfter.filter((t) => t.url === `http://localhost:${PORT}/`)
+  check('still exactly one preview target after the run — the harness never opened a second, separate browser', previewTargetsAfter.length === 1)
 
   await window.locator('[data-testid="live-preview-stop"]').click()
   await window.waitForSelector('[data-testid="live-preview-start"]', { timeout: 5_000 })
