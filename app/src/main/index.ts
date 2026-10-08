@@ -1,5 +1,13 @@
 import { join } from 'node:path'
 import { app, BrowserWindow, safeStorage } from 'electron'
+// `electron-updater` is a CommonJS module whose named exports don't resolve
+// cleanly through native ESM interop (confirmed live — a real app launch
+// threw `SyntaxError: Named export 'autoUpdater' not found` with a direct
+// `import { autoUpdater } from 'electron-updater'`, caught by the e2e smoke
+// test, not by unit tests alone). The default-import + destructure form is
+// the standard, documented fix for this exact CJS/ESM interop shape.
+import electronUpdaterPkg from 'electron-updater'
+const { autoUpdater } = electronUpdaterPkg
 
 /**
  * User-confirmed tradeoff (2026-10-07): exposes Chrome DevTools Protocol on
@@ -35,6 +43,7 @@ import { TypesafeKeyStore, defaultTypesafeKeyPath } from './settings/typesafeKey
 import { MemoryStore, defaultSnapshotPath } from './store/memoryStore'
 import { SessionManager } from './session/sessionManager'
 import { buildSessionHistory } from './session/history'
+import { wireAutoUpdater, type UpdateEvent } from './update/autoUpdater'
 import type { Project } from '../shared/types'
 
 const isDev = !app.isPackaged
@@ -83,7 +92,23 @@ const typesafeKeyStore = new TypesafeKeyStore(defaultTypesafeKeyPath(app.getPath
 function shellQuote(value: string): string {
   return `'${value.replace(/'/g, `'\\''`)}'`
 }
-const jevGuardHookEntryPath = join(__dirname, 'hooks/jevGuardHookEntry.js')
+/**
+ * Workstream K (distribution) — `hooks/jevGuardHookEntry.js` is invoked as a
+ * literal OS-level shell command by Claude Code's own hook runner, a real
+ * child process reading a real file on disk, never through Electron/Node's
+ * own asar-transparent `fs`/`require` interception. Packaged inside the
+ * default `app.asar` archive, that path wouldn't exist as a real file at
+ * all (`electron-builder.yml`'s own `asarUnpack` entry for this exact
+ * directory is the other half of this fix). `app.asar.unpacked` is
+ * electron-builder's own fixed convention for where such files actually
+ * land, same relative structure — and a true no-op string when
+ * unpackaged/in dev, since `'app.asar'` is simply absent from `__dirname`
+ * then.
+ */
+function resolveUnpackedPath(compiledDirname: string, relativePath: string): string {
+  return join(compiledDirname.replace('app.asar', 'app.asar.unpacked'), relativePath)
+}
+const jevGuardHookEntryPath = resolveUnpackedPath(__dirname, 'hooks/jevGuardHookEntry.js')
 const jevGuardHookCommand = `ELECTRON_RUN_AS_NODE=1 ${shellQuote(process.execPath)} ${shellQuote(jevGuardHookEntryPath)}`
 
 /**
@@ -113,6 +138,20 @@ const sessionManager = new SessionManager({
   jevGuardHookCommand,
   getJevGuardApiKey: () => typesafeKeyStore.getKey(),
 })
+
+/**
+ * Workstream K — only wired in a real packaged build, never under
+ * `npm run dev` (there's no packaged `app-update.yml` for it to read, and
+ * a dev build should never phone home about its own version). macOS
+ * auto-update genuinely cannot apply without code signing (confirmed in
+ * `electron-updater`'s own docs) — real on an unsigned build today, this
+ * degrades to "checks and reports an available version, but downloading
+ * it will fail honestly rather than silently" until a Developer ID exists;
+ * Windows/Linux work fully unsigned.
+ */
+if (!isDev) {
+  wireAutoUpdater(autoUpdater, (event: UpdateEvent) => sendToMainWindow(IPC.UPDATE_EVENT, event))
+}
 
 // Direct fix for the orphaned-process behavior observed in chunk 2 (killing
 // the dev-mode wrapper left the real Electron process tree running): every
@@ -456,6 +495,24 @@ ipcHandle(IPC.PREVIEW_PANEL_SET_BOUNDS, (event, bounds: { x: number; y: number; 
 ipcHandle(IPC.PREVIEW_PANEL_STATUS, (event) => {
   assertMainFrame(event)
   return previewPanelManager?.getState() ?? null
+})
+
+ipcHandle(IPC.UPDATE_CHECK, async (event) => {
+  assertMainFrame(event)
+  if (isDev) return
+  await autoUpdater.checkForUpdates()
+})
+
+ipcHandle(IPC.UPDATE_DOWNLOAD, async (event) => {
+  assertMainFrame(event)
+  if (isDev) return
+  await autoUpdater.downloadUpdate()
+})
+
+ipcHandle(IPC.UPDATE_INSTALL, (event) => {
+  assertMainFrame(event)
+  if (isDev) return
+  autoUpdater.quitAndInstall()
 })
 
 app.whenReady().then(() => {

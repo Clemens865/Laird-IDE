@@ -1,0 +1,36 @@
+appId: com.laird.app
+productName: Laird
+directories:
+  output: release
+  buildResources: build
+files:
+  - out/**/*
+  - package.json
+# `hooks/jevGuardHookEntry.js` (Workstream J) is invoked as a literal OS-level
+# shell command by Claude Code's own hook runner — a real child process
+# reading a real file path, not something that goes through Electron/Node's
+# own asar-transparent fs/require interception. Packaged inside the default
+# app.asar archive, that path wouldn't exist as a real file on disk at all,
+# and the hook would silently fail to invoke (fail-open, so not a crash, but
+# a real, silent loss of the feature). Unpacked here; `index.ts`'s own path
+# computation accounts for the resulting `app.asar.unpacked/...` location.
+asarUnpack:
+  - out/main/hooks/**
+mac:
+  category: public.app-category.developer-tools
+  target:
+    - dmg
+    # electron-updater's macOS update mechanism applies updates from the zip
+    # artifact, not the dmg — easy to silently get wrong by only shipping a dmg.
+    - zip
+win:
+  target:
+    - nsis
+linux:
+  target:
+    - AppImage
+  category: Development
+publish:
+  provider: github
+  owner: Clemens865
+  repo: Laird-IDE

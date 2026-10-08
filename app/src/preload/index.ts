@@ -5,6 +5,7 @@ import type { BrowseResult, InstallResult, MarketplaceEntry, UninstallResult } f
 import type { SessionHistoryEntry } from '../main/session/history'
 import type { RequestStartResult, SessionManagerEvent } from '../main/session/sessionManager'
 import type { DirectoryListing, FilePreview } from '../main/files/browser'
+import type { UpdateEvent } from '../main/update/autoUpdater'
 import type { HarnessRun, Project, Skill } from '../shared/types'
 
 contextBridge.exposeInMainWorld('laird', {
@@ -99,5 +100,15 @@ contextBridge.exposeInMainWorld('laird', {
     read: (opts: { projectId: string; relativePath: string }): Promise<FilePreview> => ipcRenderer.invoke(IPC.FILES_READ, opts),
     openExternal: (opts: { projectId: string; relativePath: string }): Promise<{ ok: true } | { ok: false; message: string }> =>
       ipcRenderer.invoke(IPC.FILES_OPEN_EXTERNAL, opts),
+  },
+  update: {
+    check: (): Promise<void> => ipcRenderer.invoke(IPC.UPDATE_CHECK),
+    download: (): Promise<void> => ipcRenderer.invoke(IPC.UPDATE_DOWNLOAD),
+    install: (): Promise<void> => ipcRenderer.invoke(IPC.UPDATE_INSTALL),
+    onEvent: (cb: (event: UpdateEvent) => void) => {
+      const handler = (_e: unknown, event: UpdateEvent) => cb(event)
+      ipcRenderer.on(IPC.UPDATE_EVENT, handler)
+      return () => ipcRenderer.removeListener(IPC.UPDATE_EVENT, handler)
+    },
   },
 })

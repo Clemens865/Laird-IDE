@@ -5,6 +5,7 @@
 node_modules/
 app/out/
 app/dist/
+app/release/
 
 # Secrets / local env
 .env

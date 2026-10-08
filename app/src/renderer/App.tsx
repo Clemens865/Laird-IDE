@@ -19,6 +19,7 @@ import { SessionHistoryView } from './components/SessionHistoryView'
 import { SkillsView } from './components/SkillsView'
 import { SubagentRoster } from './components/SubagentRoster'
 import { Topbar, type AppView } from './components/Topbar'
+import { UpdateBanner } from './components/UpdateBanner'
 
 interface PendingConfirmation {
   confirmationId: string
@@ -228,6 +229,7 @@ export function App() {
       </Decorative>
 
       <Topbar view={view} onSetView={setView} />
+      <UpdateBanner />
 
       <div className="tabs">
         {view === 'tabs' &&

@@ -2,6 +2,7 @@ export {}
 
 import type { HarnessRun, Project, Skill, SubagentDefinition } from '../shared/types'
 import type { DirectoryListing, FilePreview } from '../main/files/browser'
+import type { UpdateEvent } from '../main/update/autoUpdater'
 
 interface SessionTransportEvent {
   kind: string
@@ -153,6 +154,12 @@ declare global {
         list: (opts: { projectId: string; relativePath: string }) => Promise<DirectoryListing>
         read: (opts: { projectId: string; relativePath: string }) => Promise<FilePreview>
         openExternal: (opts: { projectId: string; relativePath: string }) => Promise<{ ok: true } | { ok: false; message: string }>
+      }
+      update: {
+        check: () => Promise<void>
+        download: () => Promise<void>
+        install: () => Promise<void>
+        onEvent: (cb: (event: UpdateEvent) => void) => () => void
       }
     }
   }
