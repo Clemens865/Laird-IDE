@@ -150,6 +150,12 @@ try {
   )
   check('toggling an individual Jev feature on persists via real IPC', true)
 
+  // Telemetry stance (design-system-and-nfr.md, resolved 2026-10-08) — the
+  // one place in the whole app that explains the one real outbound network
+  // call Laird's own code makes, and that nothing else is telemetry.
+  const telemetryText = await window.locator('[data-testid="telemetry-disclosure"]').innerText()
+  check('telemetry disclosure renders and states no usage telemetry is collected', telemetryText.includes('collects no usage telemetry'))
+
   const screenshotPath = process.env.LAIRD_SCREENSHOT_PATH ?? path.join(tmpdir(), 'laird-harness-view.png')
   await window.screenshot({ path: screenshotPath })
   console.log(`[harness-e2e] screenshot saved to ${screenshotPath}`)

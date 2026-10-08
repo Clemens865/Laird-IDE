@@ -451,6 +451,11 @@ export function HarnessView({ project, onProjectUpdate }: { project: Project; on
             Sends your harness criteria and reviewer rationales to a third-party API (typesafe.ai) when enabled. The key below
             applies to every project on this machine, not just this one.
           </div>
+          <div className="mono" data-testid="telemetry-disclosure" style={{ fontSize: 10.5, color: 'var(--muted)' }}>
+            Laird itself collects no usage telemetry, analytics, or crash reports, opt-in or otherwise. This is the only
+            network request Laird's own code ever makes on its own — everything else that touches the network (a Claude Code
+            session, a plugin install) is something you directly asked it to do, not telemetry.
+          </div>
           {typesafeStatus?.configured ? (
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <span className="mono" style={{ fontSize: 11, color: 'var(--state-success)' }} data-testid="typesafe-key-status">
