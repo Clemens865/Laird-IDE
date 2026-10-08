@@ -133,6 +133,11 @@ export function App() {
     setSelectedProjectId(project.id)
     setNewProjectPath('')
     setAddingProject(false)
+    // Always land on the real chat interface after adding a project — not
+    // wherever the user happened to be navigationally (e.g. still on
+    // History/Skills from earlier browsing), since "I just added a
+    // project" means "show me its activity stream and composer."
+    setView('tabs')
   }, [])
 
   const handleAddProject = useCallback(async () => {
