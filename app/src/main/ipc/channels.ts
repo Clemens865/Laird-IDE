@@ -34,6 +34,7 @@ export const IPC = {
   HARNESS_TEST_DETECT: 'harness:test-detect',
   HARNESS_TEST_SET: 'harness:test-set',
   HARNESS_CRITERION_PREFILTER: 'harness:criterion-prefilter',
+  HARNESS_COST_CEILING_SET: 'harness:cost-ceiling-set',
   PREVIEW_PANEL_START: 'preview-panel:start',
   PREVIEW_PANEL_STOP: 'preview-panel:stop',
   PREVIEW_PANEL_SET_BOUNDS: 'preview-panel:set-bounds',
@@ -43,4 +44,7 @@ export const IPC = {
   SETTINGS_TYPESAFE_STATUS: 'settings:typesafe-status',
   SETTINGS_TYPESAFE_SET_KEY: 'settings:typesafe-set-key',
   SETTINGS_TYPESAFE_CLEAR_KEY: 'settings:typesafe-clear-key',
+  FILES_LIST: 'files:list',
+  FILES_READ: 'files:read',
+  FILES_OPEN_EXTERNAL: 'files:open-external',
 } as const

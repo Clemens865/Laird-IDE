@@ -1,7 +1,7 @@
 import { BoardFlip } from './BoardFlip'
 import { ThemeToggle } from './ThemeToggle'
 
-export type AppView = 'tabs' | 'grid' | 'skills' | 'history' | 'marketplace' | 'harness'
+export type AppView = 'tabs' | 'grid' | 'skills' | 'history' | 'marketplace' | 'harness' | 'files'
 
 export function Topbar({ view, onSetView }: { view: AppView; onSetView: (view: AppView) => void }) {
   return (
@@ -42,6 +42,14 @@ export function Topbar({ view, onSetView }: { view: AppView; onSetView: (view: A
           style={{ cursor: 'pointer' }}
         >
           Harness
+        </div>
+        <div
+          className="btn"
+          onClick={() => onSetView(view === 'files' ? 'tabs' : 'files')}
+          data-testid="toggle-files-button"
+          style={{ cursor: 'pointer' }}
+        >
+          Files
         </div>
         <div
           className="btn"

@@ -1,6 +1,7 @@
 export {}
 
 import type { HarnessRun, Project, Skill, SubagentDefinition } from '../shared/types'
+import type { DirectoryListing, FilePreview } from '../main/files/browser'
 
 interface SessionTransportEvent {
   kind: string
@@ -132,6 +133,7 @@ declare global {
         detectTest: (opts: { projectId: string }) => Promise<Project['testCommand'] | null>
         setTest: (opts: { projectId: string; testCommand: Project['testCommand'] }) => Promise<Project | undefined>
         criterionPrefilter: (opts: { projectId: string; criterion: string }) => Promise<{ clear: boolean; confidence: number }>
+        setCostCeiling: (opts: { projectId: string; costCeilingUsd: number | undefined }) => Promise<Project | undefined>
       }
       settings: {
         typesafeStatus: () => Promise<{ configured: boolean; available: boolean }>
@@ -145,6 +147,11 @@ declare global {
         setBounds: (bounds: { x: number; y: number; width: number; height: number }) => Promise<void>
         status: () => Promise<{ projectId: string; url: string } | null>
         onLockChange: (cb: (locked: boolean) => void) => () => void
+      }
+      files: {
+        list: (opts: { projectId: string; relativePath: string }) => Promise<DirectoryListing>
+        read: (opts: { projectId: string; relativePath: string }) => Promise<FilePreview>
+        openExternal: (opts: { projectId: string; relativePath: string }) => Promise<{ ok: true } | { ok: false; message: string }>
       }
     }
   }

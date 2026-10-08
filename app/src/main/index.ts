@@ -16,6 +16,8 @@ const CDP_PORT = 9335
 app.commandLine.appendSwitch('remote-debugging-port', String(CDP_PORT))
 import { IPC } from './ipc/channels'
 import { ipcHandle, registerCleanup, runCleanups } from './ipc/registry'
+import { listDirectory, openExternal, pathExists, readFilePreview } from './files/browser'
+import { resolveWithinProject } from './files/security'
 import { addProject } from './project/registry'
 import { removeWorktree } from './project/worktree'
 import { assertMainFrame } from './security'
@@ -241,6 +243,12 @@ ipcHandle(IPC.HARNESS_PREVIEW_SET, (event, opts: { projectId: string; uiPreview:
   return store.getProject(opts.projectId)
 })
 
+ipcHandle(IPC.HARNESS_COST_CEILING_SET, (event, opts: { projectId: string; costCeilingUsd: number | undefined }) => {
+  assertMainFrame(event)
+  store.setCostCeiling(opts.projectId, opts.costCeilingUsd)
+  return store.getProject(opts.projectId)
+})
+
 /** One active, cancelable harness run per project — matches the UI's own "Run harness" button, which is disabled while a run is already in flight. */
 const activeHarnessRuns = new Map<string, AbortController>()
 
@@ -280,7 +288,14 @@ ipcHandle(IPC.HARNESS_RUN_START, async (event, opts: { projectId: string }) => {
   const controller = new AbortController()
   activeHarnessRuns.set(project.id, controller)
   try {
-    const run = await runReviewer(project, { jevApiKey, signal: controller.signal, sharedPreview })
+    const run = await runReviewer(project, {
+      jevApiKey,
+      signal: controller.signal,
+      sharedPreview,
+      getRecordedScript: (criterion) => store.getRecordedScript(project.id, criterion),
+      saveRecordedScript: (criterion, script) => store.setRecordedScript(project.id, criterion, script),
+      clearRecordedScript: (criterion) => store.clearRecordedScript(project.id, criterion),
+    })
     store.appendHarnessRun(run)
     return run
   } finally {
@@ -344,6 +359,41 @@ ipcHandle(IPC.SETTINGS_TYPESAFE_CLEAR_KEY, (event) => {
   assertMainFrame(event)
   typesafeKeyStore.clearKey()
   return { configured: typesafeKeyStore.hasKey(), available: typesafeKeyStore.isAvailable() }
+})
+
+/**
+ * Workstream I (pillar 5) — `files/security.ts`'s `resolveWithinProject` is
+ * the real containment check; every handler here resolves against the
+ * project's own `path`, never a session's ephemeral worktree (see the
+ * plan's own research: a worktree is torn down with its session, `path` is
+ * the stable, persistent directory a "browse this project's files" feature
+ * actually means).
+ */
+ipcHandle(IPC.FILES_LIST, (event, opts: { projectId: string; relativePath: string }) => {
+  assertMainFrame(event)
+  const project = store.getProject(opts.projectId)
+  if (!project) throw new Error(`FILES_LIST: unknown projectId ${opts.projectId}`)
+  const absoluteDir = resolveWithinProject(project.path, opts.relativePath)
+  if (!pathExists(absoluteDir)) throw new Error(`FILES_LIST: ${opts.relativePath} does not exist`)
+  return listDirectory(absoluteDir)
+})
+
+ipcHandle(IPC.FILES_READ, (event, opts: { projectId: string; relativePath: string }) => {
+  assertMainFrame(event)
+  const project = store.getProject(opts.projectId)
+  if (!project) throw new Error(`FILES_READ: unknown projectId ${opts.projectId}`)
+  const absolutePath = resolveWithinProject(project.path, opts.relativePath)
+  if (!pathExists(absolutePath)) throw new Error(`FILES_READ: ${opts.relativePath} does not exist`)
+  return readFilePreview(absolutePath)
+})
+
+ipcHandle(IPC.FILES_OPEN_EXTERNAL, async (event, opts: { projectId: string; relativePath: string }) => {
+  assertMainFrame(event)
+  const project = store.getProject(opts.projectId)
+  if (!project) throw new Error(`FILES_OPEN_EXTERNAL: unknown projectId ${opts.projectId}`)
+  const absolutePath = resolveWithinProject(project.path, opts.relativePath)
+  if (!pathExists(absolutePath)) throw new Error(`FILES_OPEN_EXTERNAL: ${opts.relativePath} does not exist`)
+  return openExternal(absolutePath)
 })
 
 ipcHandle(IPC.PREVIEW_PANEL_START, async (event, opts: { projectId: string }) => {

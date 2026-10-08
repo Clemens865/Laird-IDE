@@ -4,6 +4,7 @@ import type { DiscoveredSkillsAndAgents } from '../main/skills/discovery'
 import type { BrowseResult, InstallResult, MarketplaceEntry, UninstallResult } from '../main/skills/marketplace'
 import type { SessionHistoryEntry } from '../main/session/history'
 import type { RequestStartResult, SessionManagerEvent } from '../main/session/sessionManager'
+import type { DirectoryListing, FilePreview } from '../main/files/browser'
 import type { HarnessRun, Project, Skill } from '../shared/types'
 
 contextBridge.exposeInMainWorld('laird', {
@@ -68,6 +69,8 @@ contextBridge.exposeInMainWorld('laird', {
       ipcRenderer.invoke(IPC.HARNESS_TEST_SET, opts),
     criterionPrefilter: (opts: { projectId: string; criterion: string }): Promise<{ clear: boolean; confidence: number }> =>
       ipcRenderer.invoke(IPC.HARNESS_CRITERION_PREFILTER, opts),
+    setCostCeiling: (opts: { projectId: string; costCeilingUsd: number | undefined }): Promise<Project | undefined> =>
+      ipcRenderer.invoke(IPC.HARNESS_COST_CEILING_SET, opts),
   },
   settings: {
     typesafeStatus: (): Promise<{ configured: boolean; available: boolean }> => ipcRenderer.invoke(IPC.SETTINGS_TYPESAFE_STATUS),
@@ -88,5 +91,11 @@ contextBridge.exposeInMainWorld('laird', {
       ipcRenderer.on(IPC.PREVIEW_PANEL_LOCK_CHANGED, handler)
       return () => ipcRenderer.removeListener(IPC.PREVIEW_PANEL_LOCK_CHANGED, handler)
     },
+  },
+  files: {
+    list: (opts: { projectId: string; relativePath: string }): Promise<DirectoryListing> => ipcRenderer.invoke(IPC.FILES_LIST, opts),
+    read: (opts: { projectId: string; relativePath: string }): Promise<FilePreview> => ipcRenderer.invoke(IPC.FILES_READ, opts),
+    openExternal: (opts: { projectId: string; relativePath: string }): Promise<{ ok: true } | { ok: false; message: string }> =>
+      ipcRenderer.invoke(IPC.FILES_OPEN_EXTERNAL, opts),
   },
 })

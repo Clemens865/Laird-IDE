@@ -8,6 +8,7 @@ import { ConfirmStart } from './components/ConfirmStart'
 import { CostFooter } from './components/CostFooter'
 import { Composer } from './components/Composer'
 import { Decorative } from './components/Decorative'
+import { FilesView } from './components/FilesView'
 import { GridView, lastMessageFrom } from './components/GridView'
 import { KillSwitch } from './components/KillSwitch'
 import { MarketplaceView } from './components/MarketplaceView'
@@ -274,6 +275,12 @@ export function App() {
       ) : view === 'history' ? (
         selected ? (
           <SessionHistoryView projectId={selected.id} />
+        ) : (
+          <div style={{ padding: 40, color: 'var(--muted)' }}>Add a project first.</div>
+        )
+      ) : view === 'files' ? (
+        selected ? (
+          <FilesView projectId={selected.id} />
         ) : (
           <div style={{ padding: 40, color: 'var(--muted)' }}>Add a project first.</div>
         )
